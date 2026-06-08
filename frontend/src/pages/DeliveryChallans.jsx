@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
-import api, { formatINR } from "@/lib/api";
+import api, { formatINR, BACKEND_URL } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Truck, QrCode, Receipt } from "@phosphor-icons/react";
+import { Truck, QrCode, Receipt, FilePdf, WhatsappLogo } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import DateFilter, { dateQuery } from "@/components/DateFilter";
 
 const STATUS_COLOR = {
@@ -23,6 +25,29 @@ export default function DeliveryChallans() {
     const url = params ? `/filtered/delivery-challans?${params}` : "/delivery-challans";
     api.get(url).then((r) => setList(r.data));
   }, [dateRange]);
+
+  const downloadDcPdf = async (dc, e) => {
+    e?.stopPropagation();
+    const token = localStorage.getItem("nexus_token");
+    const r = await fetch(`${BACKEND_URL}/api/delivery-challans/${dc.id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) { toast.error("Could not generate PDF"); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `${dc.dc_number}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const shareDcWhatsApp = async (dc, e) => {
+    e?.stopPropagation();
+    const phone = prompt(`Franchise WhatsApp number (with country code, e.g. 919876543210):`, "");
+    if (phone === null) return;
+    try {
+      const r = await api.get(`/whatsapp/share?kind=dc&doc_id=${dc.id}${phone ? `&phone=${encodeURIComponent(phone)}` : ""}`);
+      window.open(r.data.url, "_blank", "noopener");
+    } catch (e) {
+      toast.error("Failed to build share link");
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="dc-page">
@@ -46,6 +71,7 @@ export default function DeliveryChallans() {
               <th className="px-4 py-3 text-right">Grand Total</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Invoice #</th>
+              <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -58,10 +84,16 @@ export default function DeliveryChallans() {
                 <td className="px-4 py-3 text-right tabular-nums">{formatINR(dc.grand_total)}</td>
                 <td className="px-4 py-3"><Badge variant="outline" className={`text-[11px] ${STATUS_COLOR[dc.status]}`}>{dc.status}</Badge></td>
                 <td className="px-4 py-3 font-mono text-xs">{dc.invoice_number || "—"}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className="inline-flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={(e) => downloadDcPdf(dc, e)} title="Download PDF" data-testid={`dc-pdf-${dc.dc_number}`}><FilePdf size={14} /></Button>
+                    <Button size="sm" variant="ghost" onClick={(e) => shareDcWhatsApp(dc, e)} title="Share via WhatsApp" data-testid={`dc-wa-${dc.dc_number}`}><WhatsappLogo size={14} /></Button>
+                  </div>
+                </td>
               </tr>
             ))}
             {list.length === 0 && (
-              <tr><td colSpan={7} className="p-12 text-center text-muted-foreground">
+              <tr><td colSpan={8} className="p-12 text-center text-muted-foreground">
                 <Truck size={32} className="mx-auto mb-2 opacity-50" />
                 No challans yet. Dispatch an indent to auto-generate one.
               </td></tr>

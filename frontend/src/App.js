@@ -20,6 +20,7 @@ import FranchiseTiers from "@/pages/FranchiseTiers";
 import BulkImport from "@/pages/BulkImport";
 import NewOrder from "@/pages/NewOrder";
 import AuditLogs from "@/pages/AuditLogs";
+import Reports from "@/pages/Reports";
 import "@/App.css";
 
 function RequireAuth({ children }) {
@@ -51,6 +52,7 @@ function App() {
             <Route path="/inventory/bulk-import" element={<RequireAuth><BulkImport /></RequireAuth>} />
             <Route path="/indents/new" element={<RequireAuth><NewOrder /></RequireAuth>} />
             <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
+            <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

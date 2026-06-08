@@ -6,6 +6,7 @@ import {
   House, Package, FileText, Truck, Users, Storefront, ChartBar,
   ListMagnifyingGlass, ClipboardText, ShieldCheck, Receipt, CurrencyInr,
   Sun, Moon, SignOut, MagnifyingGlass, List as MenuIcon, X, UploadSimple, Crown,
+  ChartLine,
 } from "@phosphor-icons/react";
 
 const NAV = [
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/cycle-count", label: "Cycle Count", icon: ListMagnifyingGlass, roles: ["super_admin", "warehouse_manager"] },
   { to: "/pricing", label: "Pricing Engine", icon: CurrencyInr, roles: ["super_admin", "hub_accountant"] },
   { to: "/pricing/tiers", label: "Franchise Tiers", icon: Crown, roles: ["super_admin", "hub_accountant"] },
+  { to: "/reports", label: "Reports", icon: ChartLine, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/audit-logs", label: "Audit Logs", icon: ShieldCheck, roles: ["super_admin", "hub_accountant"] },
 ];
 

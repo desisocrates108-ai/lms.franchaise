@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { Lightning, ClipboardText, Plus, Trash, FilePdf, PencilSimple, FloppyDisk } from "@phosphor-icons/react";
+import { Lightning, ClipboardText, Plus, Trash, FilePdf, PencilSimple, FloppyDisk, WhatsappLogo } from "@phosphor-icons/react";
 import DateFilter, { dateQuery } from "@/components/DateFilter";
 
 const STATUS_COLOR = {
@@ -93,6 +93,17 @@ export default function PurchaseOrders() {
     URL.revokeObjectURL(url);
   };
 
+  const shareWhatsApp = async (po) => {
+    const phone = prompt(`Vendor WhatsApp number (with country code, e.g. 919876543210):`, "");
+    if (phone === null) return; // cancelled
+    try {
+      const r = await api.get(`/whatsapp/share?kind=po&doc_id=${po.id}${phone ? `&phone=${encodeURIComponent(phone)}` : ""}`);
+      window.open(r.data.url, "_blank", "noopener");
+    } catch (e) {
+      toast.error("Failed to build share link");
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="po-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -140,6 +151,7 @@ export default function PurchaseOrders() {
                 <td className="px-4 py-3 text-right">
                   <div className="flex gap-1 justify-end">
                     <Button size="sm" variant="ghost" onClick={() => downloadPdf(po)} title="Download PDF" data-testid={`po-pdf-${po.po_number}`}><FilePdf size={14} /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => shareWhatsApp(po)} title="Share via WhatsApp" data-testid={`po-wa-${po.po_number}`}><WhatsappLogo size={14} /></Button>
                     {canManage && po.status === "draft" && (
                       <>
                         <Button size="sm" variant="outline" onClick={() => openEdit(po)} data-testid={`po-edit-${po.po_number}`}><PencilSimple size={14} className="mr-1" /> Edit</Button>

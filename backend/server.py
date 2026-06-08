@@ -32,6 +32,7 @@ from ocr_service import parse_invoice
 from seed import seed_demo_data
 import ocr_service as _ocr_service_mod
 import routers_v21
+import routers_v22
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -703,7 +704,15 @@ async def update_po_status(poid: str, status: str = Form(...), request: Request 
     if res.matched_count == 0:
         raise HTTPException(404, "Not found")
     await log_audit(user, "po.status", "purchase_order", poid, after={"status": status}, request=request)
-    return {"ok": True}
+    # V2.2 — auto-reopen pending indents when stock arrives
+    reopened = {"reopened": 0}
+    if status == "received":
+        po = await db.purchase_orders.find_one({"id": poid}, {"_id": 0})
+        try:
+            reopened = await routers_v22.reopen_awaiting_stock_indents(po)
+        except Exception as e:
+            logger.exception(f"reopen_awaiting_stock_indents failed: {e}")
+    return {"ok": True, **reopened}
 
 
 # ============ INDENTS (Franchise Orders) ============
@@ -1321,6 +1330,14 @@ routers_v21.init(
     upload_dir=UPLOAD_DIR,
 )
 app.include_router(routers_v21.router, prefix="/api")
+
+# V2.2 — additive routes (Invoice PDF, DC PDF redesign, WhatsApp share, Reports, Auto-reopen)
+routers_v22.init(
+    db=db,
+    log_audit_fn=log_audit,
+    adjust_stock_fn=adjust_stock,
+)
+app.include_router(routers_v22.router, prefix="/api")
 
 # Serve uploaded files
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

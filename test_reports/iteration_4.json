@@ -1,0 +1,49 @@
+{
+  "summary": "V2.2 Phase 2 & 3 end-to-end review. Found and FIXED 1 critical backend bug: routers_v22.py was querying the wrong Mongo collection name 'purchase_invoices' but server.py persists invoices to 'invoices'. After fix, 21/21 new V2.2 backend tests pass (Invoice PDF + 404, PATCH meta edit + audit, DC PDF + 404, WhatsApp share invoice with/without phone + invalid kind 422 + 404, Inventory Value report JSON/Excel/PDF with total_value math verified, Stock Movement JSON, Purchase JSON/Excel/PDF, Sales JSON, RBAC: franchise=403/accountant=200/warehouse=200, /api/indents/reopened-by-po/{poid} diagnostic, PO status=received returns {reopened, indent_ids}, backward-compat /purchase-orders+/indents+/vendors+/products+/dashboard/stats all 200). Frontend smoke (admin login): Reports page loads with all 4 tabs (Inventory Value/Stock Movement/Purchase/Sales), ₹ symbol present on monetary values, tab clicks work, NO JS pageerrors on /reports. Purchase Orders page: 5 [data-testid^='po-wa-'] buttons rendered. Stock Entry page: 2 inv-pdf + 2 inv-wa testids rendered on Recent Invoices rows. Delivery Challans page: 0 dc-pdf/dc-wa testids — explained by EMPTY delivery_challans collection in seeded DB (testids are per-row); confirmed via /api/delivery-challans returning [].",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/invoices/{iid}/pdf, PATCH /api/invoices/{iid}, /api/whatsapp/share?kind=invoice, /api/reports/purchase", "issue": "FIXED — routers_v22.py used collection name 'purchase_invoices' for all invoice-related queries, but server.py writes invoices to db.invoices. This made invoice_pdf/PATCH/whatsapp(invoice)/reports/purchase all return 404 or empty. Fixed by replacing 4 occurrences of 'purchase_invoices' -> 'invoices' in /app/backend/routers_v22.py.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Delivery Challans WhatsApp/PDF buttons", "issue": "Could not verify dc-pdf-* / dc-wa-* testids because the seeded DB has zero delivery_challans (per-row testids cannot render without rows). Wiring assumed correct based on code review of /app/frontend/src/pages/DeliveryChallans.jsx but needs a manual end-to-end run (create indent -> fulfill -> dispatch) to validate.", "affected_selectors": ["[data-testid^='dc-pdf-']", "[data-testid^='dc-wa-']"]}
+    ],
+    "design_issues": [
+      {"screen": "Dashboard (admin)", "issues": ["Recharts width(-1)/height(-1) console warnings on mount — pre-existing from iteration 2/3, perf log only"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v22_phase23.py",
+    "/app/test_reports/pytest/pytest_v22.xml"
+  ],
+  "action_items": [
+    "Self-test (already fixed by sub-agent): verify the 4 routers_v22.py collection rename ('purchase_invoices' -> 'invoices') is acceptable. RCA below.",
+    "Validate DC PDF + WhatsApp buttons by performing a full indent->fulfill->dispatch flow to create a DC row, then confirm dc-pdf-{dc_number} and dc-wa-{dc_number} render and downloadDcPdf/shareDcWhatsApp work with stopPropagation (does not open detail modal).",
+    "Optional hardening: public-signed PDF tokens so the WhatsApp recipient (no nexus_token) can open the PDF link — currently noted as future work in problem statement.",
+    "Auto-reopen indent flow: contract-level test passes (PUT status=received returns {reopened, indent_ids}). A full mutation test was skipped because there is no API to directly set an indent to status='awaiting_stock' with backorder_qty>0 — would require seeding via Mongo. Recommend adding a small test-only helper or seeding script if deeper auto-reopen verification is required."
+  ],
+  "critical_code_review_comments": [
+    "BUG (fixed): routers_v22.py used wrong collection name 'purchase_invoices' (4 places: invoice_pdf, edit_invoice_meta, whatsapp coll_map, report_purchase) when server.py persists to 'invoices'. Now aligned.",
+    "WhatsApp deeplink builder correctly strips non-digits from phone (verified: '+91 98765-43210' -> wa.me/919876543210). No phone -> wa.me/?text=... so user picks recipient.",
+    "Reports use a shared _date_range_query helper and a single _format_report dispatcher — DRY and consistent. PDF row cap = 500 prevents huge reportlab docs (Excel still has full data).",
+    "Inventory Value report total math verified: sum(qty*landing) over rows == summary.total_value (within 1.0 rounding tolerance).",
+    "RBAC correctly enforced via require_roles for all /api/reports/* (franchise_manager -> 403 confirmed).",
+    "reopen_awaiting_stock_indents() is correctly fired only on status=='received' and is wrapped in try/except in server.py so a failure does not break PO status update — good defensive design.",
+    "PDF rendering uses BytesIO + StreamingResponse + io.BytesIO(buf.getvalue()) — works but wraps the buffer twice; minor perf nit, not a bug.",
+    "Pre-existing concern carried over: server.py is now 1363 lines; refactor explicitly deferred per problem statement."
+  ],
+  "updated_files": [
+    "/app/backend/routers_v22.py (4 replacements: purchase_invoices -> invoices)",
+    "/app/backend/tests/test_v22_phase23.py (NEW — V2.2 backend test suite, 21 tests, all passing)"
+  ],
+  "success_rate": {"backend": "100% (21/21 V2.2 tests pass after collection-name fix)", "frontend": "Smoke OK: Reports 4 tabs + ₹ formatting + no JS errors; PO WhatsApp testids=5; Stock Entry inv-pdf=2/inv-wa=2; DC testids unverifiable due to empty DC collection in seed"},
+  "test_credentials": "admin@servall.com / Admin@123 (used). Other roles in conftest still rely on V2.1 working passwords (Accountant@123 / Warehouse@123 / Franchise@123) — confirmed all 4 logins succeed.",
+  "seed_data_creation": "Test suite creates one TEST indent (admin role) but no PO auto-generate occurred because hub stock was not low; cleanup not performed (TEST_ prefix only). One invoice was PATCHed to a TEST-EDIT-* number — this DOES mutate real data; consider reverting if test data hygiene matters.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The collection-name bug in routers_v22.py is fixed and all 21 backend tests pass. The only remaining frontend gap is DC PDF/WhatsApp testid verification — the page code is wired but requires a non-empty delivery_challans collection. To create one: POST /api/indents -> fulfill (warehouse role) -> /indents/{id}/dispatch. Auto-reopen indent test is contract-validated; a full mutation test would need a Mongo-seeded indent in awaiting_stock state. Pytest XML at /app/test_reports/pytest/pytest_v22.xml.",
+  "rca of the issue": "RCA: routers_v22.py (new in V2.2) hard-coded the wrong Mongo collection name 'purchase_invoices' in 4 places (invoice_pdf line 49, edit_invoice_meta line 69 + 81, whatsapp_share coll_map line 122, report_purchase line 224). server.py V2.1 stores invoices in collection 'invoices' (line 534: db.invoices.insert_one). All invoice-flavored V2.2 endpoints therefore returned 404 (or empty results for reports/purchase). Reproduction: GET /api/invoices/{any real id}/pdf -> 404 'Invoice not found'. Fix: search/replace 'purchase_invoices' -> 'invoices' (4 occurrences) in /app/backend/routers_v22.py. After fix, GET /api/invoices/{id}/pdf returns 200 application/pdf with %PDF magic bytes and >1KB content. Mitigation: future V2.x routers should import a single COLLECTIONS constants module from server.py instead of stringly-typing collection names."
+}

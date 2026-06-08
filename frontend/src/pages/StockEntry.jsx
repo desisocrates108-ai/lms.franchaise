@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CloudArrowUp, FileText, WarningCircle, CheckCircle, Sparkle } from "@phosphor-icons/react";
+import { CloudArrowUp, FileText, WarningCircle, CheckCircle, Sparkle, FilePdf, WhatsappLogo } from "@phosphor-icons/react";
 import DateFilter, { dateQuery } from "@/components/DateFilter";
 
 export default function StockEntry() {
@@ -310,6 +310,7 @@ export default function StockEntry() {
                   <th className="px-3 py-2 text-right">Total</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2 text-right">Confidence</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -327,10 +328,35 @@ export default function StockEntry() {
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {inv.confidence_score ? `${Math.round((inv.confidence_score || 0) * 100)}%` : "—"}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="inline-flex gap-1">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Download PDF" data-testid={`inv-pdf-${inv.invoice_number}`}
+                          onClick={async () => {
+                            const token = localStorage.getItem("nexus_token");
+                            const r = await fetch(`${BACKEND_URL}/api/invoices/${inv.id}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+                            if (!r.ok) { toast.error("PDF failed"); return; }
+                            const blob = await r.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a"); a.href = url; a.download = `${inv.invoice_number}.pdf`; a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        ><FilePdf size={13} /></Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Share via WhatsApp" data-testid={`inv-wa-${inv.invoice_number}`}
+                          onClick={async () => {
+                            const phone = prompt("Vendor WhatsApp number (with country code):", "");
+                            if (phone === null) return;
+                            try {
+                              const r = await api.get(`/whatsapp/share?kind=invoice&doc_id=${inv.id}${phone ? `&phone=${encodeURIComponent(phone)}` : ""}`);
+                              window.open(r.data.url, "_blank", "noopener");
+                            } catch { toast.error("Share failed"); }
+                          }}
+                        ><WhatsappLogo size={13} /></Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {recent.length === 0 && (
-                  <tr><td colSpan={6} className="text-center text-muted-foreground py-8">No invoices in selected range.</td></tr>
+                  <tr><td colSpan={7} className="text-center text-muted-foreground py-8">No invoices in selected range.</td></tr>
                 )}
               </tbody>
             </table>
