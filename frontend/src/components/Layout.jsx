@@ -6,7 +6,7 @@ import {
   House, Package, FileText, Truck, Users, Storefront, ChartBar,
   ListMagnifyingGlass, ClipboardText, ShieldCheck, Receipt, CurrencyInr,
   Sun, Moon, SignOut, MagnifyingGlass, List as MenuIcon, X, UploadSimple, Crown,
-  ChartLine,
+  ChartLine, FileText as InvoiceIcon, Gear,
 } from "@phosphor-icons/react";
 
 const NAV = [
@@ -19,11 +19,13 @@ const NAV = [
   { to: "/franchises", label: "Franchises", icon: Storefront, roles: ["super_admin", "hub_accountant"] },
   { to: "/indents", label: "Indents", icon: Receipt, roles: null },
   { to: "/delivery-challans", label: "Delivery Challans", icon: Truck, roles: null },
+  { to: "/tax-invoices", label: "Tax Invoices", icon: InvoiceIcon, roles: ["super_admin", "hub_accountant", "franchise_manager"] },
   { to: "/aging", label: "Inventory Aging", icon: ChartBar, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/cycle-count", label: "Cycle Count", icon: ListMagnifyingGlass, roles: ["super_admin", "warehouse_manager"] },
   { to: "/pricing", label: "Pricing Engine", icon: CurrencyInr, roles: ["super_admin", "hub_accountant"] },
   { to: "/pricing/tiers", label: "Franchise Tiers", icon: Crown, roles: ["super_admin", "hub_accountant"] },
   { to: "/reports", label: "Reports", icon: ChartLine, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
+  { to: "/settings/org", label: "Organization Settings", icon: Gear, roles: ["super_admin"] },
   { to: "/audit-logs", label: "Audit Logs", icon: ShieldCheck, roles: ["super_admin", "hub_accountant"] },
 ];
 

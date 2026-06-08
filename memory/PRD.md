@@ -91,4 +91,14 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - Stock-Movements audit page UI (admin/warehouse).
 
 ## Notes
-- "Made with Emergent" badge is platform branding; cannot be removed by agent. User must contact support.
+- "Made with Emergent" badge is platform branding; cannot be removed by agent. User must deploy the app (50 credits/month) — production deployments do not show the badge.
+
+## Changelog
+### v2.2 — OCR Improvement Module (current)
+- **Dual confidence scoring**: every line item now carries `llm_confidence` (Gemini self-rated, 0..1), `heuristic_confidence` (rule-based: qty/HSN/desc/unit validity), and a weighted `confidence` (default 60% LLM + 40% heuristic, configurable via `OCR_CONFIDENCE_LLM_WEIGHT`). Invoice-level averages of the same three exposed in API + UI.
+- **Match-source tracking**: every parsed row now flagged with `match_source` ∈ {alias, sku, name, manual, null} and `auto_matched_alias` boolean. Vendor alias engine remains the top-priority matcher.
+- **Validation engine sharpened**: HSN regex tightened to `\d{4,8}`. Added `unit_valid` (soft warning, not a commit blocker). Per-row `warnings[]` surfaces machine-readable codes (`missing_hsn`, `invalid_qty`, `missing_unit`, ...).
+- **Reconciliation UX**: triple confidence chip cluster (Combined / LLM / Heuristic), per-row source badge, per-row C/L/H mini-chips, inline product picker for unmatched/mismatched rows, "Remember this alias on commit" checkbox (default on), Vendor-vs-System totals reconciliation panel before commit.
+- **API contract**: backward compatible — all new fields additive with safe defaults. Existing `confidence_score` continues to work.
+- **Tests**: +15 new tests in `test_v22_ocr_module.py`. Full suite 113/113 passing.
+

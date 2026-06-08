@@ -1046,6 +1046,14 @@ async def deliver_indent(iid: str, request: Request,
             {"id": dc["id"]},
             {"$set": {"status": "invoiced", "invoice_number": inv_num, "verified_at": now_iso()}},
         )
+        # V2.2 P1 — auto-create draft Tax Invoice on DC delivery (gated by org setting)
+        try:
+            org = await db.org_settings.find_one({"id": "org-settings"}, {"_id": 0}) or {}
+            if org.get("auto_create_tax_invoice_on_delivery", True):
+                import routers_tax_invoice as _rti
+                await _rti.auto_create_tax_invoice_for_dc(dc["id"], user)
+        except Exception as _e:
+            logger.warning("auto_create_tax_invoice_for_dc failed: %s", _e)
     await log_audit(user, "indent.deliver", "indent", iid, request=request)
     return {"ok": True}
 
@@ -1362,6 +1370,11 @@ routers_v22.init(
     adjust_stock_fn=adjust_stock,
 )
 app.include_router(routers_v22.router, prefix="/api")
+
+# V2.2 P1 — Sales Tax Invoice Module (additive)
+import routers_tax_invoice  # noqa: E402
+routers_tax_invoice.init(db=db, log_audit_fn=log_audit)
+app.include_router(routers_tax_invoice.router, prefix="/api")
 
 # Serve uploaded files
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

@@ -400,3 +400,115 @@ class Notification(BaseModel):
     link: str = ""
     read: bool = False
     created_at: str = Field(default_factory=now_iso)
+
+
+# ============ V2.2 — SALES TAX INVOICE MODULE ============
+class OrganizationSettings(BaseModel):
+    """Singleton — keyed by id='org-settings'."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = "org-settings"
+    legal_name: str = "Servall Nexus Pvt Ltd"
+    trade_name: str = ""
+    address_line1: str = ""
+    address_line2: str = ""
+    city: str = ""
+    state: str = ""             # name e.g. "Karnataka"
+    state_code: str = ""        # 2-digit GSTIN state code e.g. "29"
+    pincode: str = ""
+    country: str = "India"
+    gstin: str = ""
+    pan: str = ""
+    cin: str = ""               # corporate identity number
+    phone: str = ""
+    email: str = ""
+    website: str = ""
+    bank_name: str = ""
+    bank_account: str = ""
+    bank_ifsc: str = ""
+    bank_branch: str = ""
+    invoice_prefix: str = "TI/2026-27/"    # tax invoice prefix
+    invoice_pad: int = 4
+    default_terms: str = "1. Goods once sold will not be taken back.\n2. Payment due within 30 days.\n3. Interest @ 18% p.a. on overdue invoices.\n4. Subject to local jurisdiction only."
+    logo_url: str = ""
+    signature_url: str = ""
+    auto_create_tax_invoice_on_delivery: bool = True
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class TaxInvoiceLineItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    product_id: Optional[str] = None
+    sku: str = ""
+    description: str
+    hsn: str = ""
+    qty: float = 1.0
+    unit: str = "PCS"
+    unit_price: float = 0.0
+    discount_percent: float = 0.0
+    taxable_value: float = 0.0
+    gst_percent: float = 18.0
+    cgst_amount: float = 0.0
+    sgst_amount: float = 0.0
+    igst_amount: float = 0.0
+    cess_amount: float = 0.0
+    line_total: float = 0.0
+
+
+TaxInvoiceStatus = Literal["draft", "issued", "paid", "cancelled"]
+
+
+class TaxInvoice(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    invoice_number: str = ""               # assigned on issue; blank for drafts
+    invoice_date: str = Field(default_factory=lambda: now_iso()[:10])
+    due_date: str = ""
+    status: TaxInvoiceStatus = "draft"
+
+    # Source linkage
+    source_type: Literal["challan", "manual"] = "manual"
+    challan_id: Optional[str] = None
+    dc_number: Optional[str] = None
+    indent_id: Optional[str] = None
+
+    # Customer (franchise)
+    franchise_id: Optional[str] = None
+    franchise_code: str = ""
+    franchise_name: str = ""
+    billing_name: str = ""
+    billing_address: str = ""
+    billing_gstin: str = ""
+    billing_state: str = ""
+    billing_state_code: str = ""
+    shipping_address: str = ""
+    contact_phone: str = ""
+    contact_email: str = ""
+
+    # Place of supply (for IGST vs CGST/SGST decision)
+    place_of_supply: str = ""           # e.g. "29-Karnataka"
+    is_inter_state: bool = False
+
+    # Line items + totals
+    line_items: List[TaxInvoiceLineItem] = []
+    subtotal: float = 0.0                # sum of taxable_value
+    total_discount: float = 0.0
+    cgst_total: float = 0.0
+    sgst_total: float = 0.0
+    igst_total: float = 0.0
+    cess_total: float = 0.0
+    round_off: float = 0.0
+    grand_total: float = 0.0
+    amount_in_words: str = ""
+
+    # Terms / notes
+    terms: str = ""
+    notes: str = ""
+    payment_terms: str = "Net 30"
+
+    # Audit
+    created_by: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    issued_at: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    cancelled_reason: str = ""
+    paid_at: Optional[str] = None

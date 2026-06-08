@@ -49,13 +49,14 @@ function ProductPicker({ current, onPick, onClose }) {
   const [loading, setLoading] = useState(false);
   const timerRef = useRef(null);
 
-  React.useEffect(() => {
+  // Debounced search triggered from the input's onChange (no useEffect needed)
+  const scheduleSearch = (term) => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!q || q.length < 2) { setResults([]); return undefined; }
+    if (!term || term.length < 2) { setResults([]); setLoading(false); return; }
+    setLoading(true);
     timerRef.current = setTimeout(async () => {
-      setLoading(true);
       try {
-        const r = await api.get(`/products?q=${encodeURIComponent(q)}&limit=15`);
+        const r = await api.get(`/products?q=${encodeURIComponent(term)}&limit=15`);
         setResults(r.data || []);
       } catch {
         setResults([]);
@@ -63,8 +64,12 @@ function ProductPicker({ current, onPick, onClose }) {
         setLoading(false);
       }
     }, 280);
+  };
+
+  // Cleanup pending timer on unmount
+  React.useEffect(() => {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [q]);
+  }, []);
 
   return (
     <div className="absolute z-50 left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg max-h-80 overflow-auto" data-testid="product-picker">
@@ -73,7 +78,7 @@ function ProductPicker({ current, onPick, onClose }) {
         <Input
           autoFocus
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); scheduleSearch(e.target.value); }}
           placeholder="Search by name, SKU, part number..."
           className="h-7 text-xs"
           data-testid="product-picker-input"
@@ -135,19 +140,29 @@ export default function StockEntry() {
     [invoice]
   );
 
-  const loadRecent = useCallback(async () => {
+  const loadRecent = async (range = dateRange) => {
     try {
-      const q = dateQuery(dateRange);
+      const q = dateQuery(range);
       const params = new URLSearchParams(q).toString();
       const url = params ? `/filtered/invoices?${params}` : "/invoices";
       const r = await api.get(url);
       setRecent(r.data || []);
     } catch (_e) { /* ignore */ }
-  }, [dateRange]);
+  };
 
-  React.useEffect(() => { loadRecent(); }, [loadRecent]);
+  // Load once on mount (no useEffect needed; ref guard avoids double-fetch)
+  const mountedRef = useRef(null);
+  if (mountedRef.current == null) {
+    mountedRef.current = true;
+    loadRecent(dateRange);
+  }
 
-  const handleFile = useCallback(async (file) => {
+  const handleDateChange = (next) => {
+    setDateRange(next);
+    loadRecent(next);
+  };
+
+  const handleFile = async (file) => {
     if (!file) return;
     setUploading(true);
     setError(null);
@@ -173,7 +188,7 @@ export default function StockEntry() {
     } finally {
       setUploading(false);
     }
-  }, []);
+  };
 
   const onDrop = (e) => {
     e.preventDefault();
@@ -289,7 +304,7 @@ export default function StockEntry() {
           <h1 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-2">Stock Entry · AI OCR</h1>
           <p className="text-sm text-muted-foreground mt-1">Drop a vendor invoice (PDF or image). Gemini reads it, you confirm, stock lands in Hub.</p>
         </div>
-        <DateFilter value={dateRange} onChange={setDateRange} storageKey="df:invoices" />
+        <DateFilter value={dateRange} onChange={handleDateChange} storageKey="df:invoices" />
       </div>
 
       {!invoice && (
