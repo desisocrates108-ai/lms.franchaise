@@ -37,7 +37,9 @@ export default function BulkImport() {
       const r = await api.post("/inventory/import/validate", fd);
       setValidation(r.data);
       if (r.data.blocking_rows > 0) {
-        toast.warning(`${r.data.blocking_rows} rows have errors — fix and re-upload, or commit only valid rows`);
+        toast.warning(`${r.data.blocking_rows} rows blocked. ${r.data.new + r.data.updates} rows ready to commit.`);
+      } else if (r.data.warnings_rows > 0) {
+        toast.success(`Ready to import: ${r.data.new} new, ${r.data.updates} updates, ${r.data.warnings_rows} auto-fixed`);
       } else {
         toast.success(`Ready to import: ${r.data.new} new, ${r.data.updates} updates`);
       }
@@ -99,6 +101,9 @@ export default function BulkImport() {
           <p className="text-xs text-muted-foreground mt-1 mb-3">
             14 columns: SKU, Part Number, OEM Number, Product Name, Category, HSN, Barcode, Rack Location, Vendor, Landing Price, MRP, Opening Stock, Reorder Qty, Safety Stock.
           </p>
+          <p className="text-[11px] text-muted-foreground mb-3 italic">
+            Also accepts Vyapar / Zoho / Tally exports — common column names are auto-mapped (e.g. <code>Item name → Product Name</code>, <code>Purchase price → Landing Price</code>).
+          </p>
           <Button onClick={downloadTemplate} variant="outline" data-testid="download-template-btn">
             <DownloadSimple size={14} className="mr-2" /> Download .xlsx
           </Button>
@@ -133,12 +138,13 @@ export default function BulkImport() {
               <div className="flex justify-between"><span className="text-muted-foreground">Total rows</span> <span className="font-medium">{validation.total_rows}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">New products</span> <span className="font-medium text-emerald-600">{validation.new}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Updates</span> <span className="font-medium text-blue-600">{validation.updates}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Auto-fixed</span> <span className="font-medium text-amber-600">{validation.warnings_rows || 0}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Blocked</span> <span className="font-medium text-destructive">{validation.blocking_rows}</span></div>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground mt-1 mb-3">Validate first to see commit summary.</p>
           )}
-          <Button onClick={commit} disabled={!validation || committing} className="mt-3 w-full" data-testid="commit-btn">
+          <Button onClick={commit} disabled={!validation || committing || (validation && validation.new + validation.updates === 0)} className="mt-3 w-full" data-testid="commit-btn">
             {committing ? "Committing…" : `Commit ${validation ? validation.new + validation.updates : ""} rows`}
           </Button>
           {committed && (
@@ -150,18 +156,33 @@ export default function BulkImport() {
         </div>
       </div>
 
+      {/* Detected column mapping */}
+      {validation?.detected_columns?.length > 0 && (
+        <div className="rounded-md border border-border bg-card px-4 py-3" data-testid="detected-columns">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Detected & mapped columns</div>
+          <div className="flex flex-wrap gap-1.5">
+            {validation.detected_columns.map((c) => (
+              <Badge key={c} variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 text-[10px] font-mono">{c}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Validation preview table */}
       {validation && (
         <div className="rounded-md border border-border overflow-hidden bg-card">
-          <div className="bg-muted/40 px-4 py-3 flex items-center justify-between">
-            <div className="font-display text-sm font-medium">Row-level preview ({validation.rows.length} rows)</div>
+          <div className="bg-muted/40 px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+            <div className="font-display text-sm font-medium">
+              Row-level preview ({validation.rows.length} rows{validation.rows.length > 200 ? " — showing first 200" : ""})
+            </div>
             <div className="flex gap-2">
               <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30">{validation.new} new</Badge>
               <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30">{validation.updates} updates</Badge>
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">{validation.warnings_rows || 0} auto-fixed</Badge>
               <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">{validation.blocking_rows} errors</Badge>
             </div>
           </div>
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="max-h-[500px] overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/20 sticky top-0">
                 <tr className="text-left text-xs uppercase text-muted-foreground tracking-wider">
@@ -172,34 +193,39 @@ export default function BulkImport() {
                   <th className="px-3 py-2">HSN</th>
                   <th className="px-3 py-2 text-right">Landing</th>
                   <th className="px-3 py-2 text-right">Opening</th>
-                  <th className="px-3 py-2">Issue</th>
+                  <th className="px-3 py-2">Notes</th>
                 </tr>
               </thead>
               <tbody>
-                {validation.rows.map((r) => (
-                  <tr
-                    key={r.row}
-                    className={`border-t border-border ${r.blocking ? "bg-destructive/5" : r.is_update ? "bg-blue-500/5" : ""}`}
-                    data-testid={`import-row-${r.row}`}
-                  >
-                    <td className="px-3 py-2 text-muted-foreground">{r.row}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{r.data.sku}</td>
-                    <td className="px-3 py-2">{r.data.name}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{r.data.category}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{r.data.hsn}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.data.landing_price}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.data.opening_stock}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {r.errors.length === 0 ? (
-                        <span className="text-emerald-600 inline-flex items-center gap-1"><CheckCircle size={12} /> OK</span>
-                      ) : (
-                        <span className={`inline-flex items-center gap-1 ${r.blocking ? "text-destructive" : "text-blue-600"}`}>
-                          <WarningCircle size={12} /> {r.errors.join(" · ")}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {validation.rows.slice(0, 200).map((r) => {
+                  const hasWarn = (r.warnings || []).length > 0;
+                  const allMsgs = [...(r.errors || []), ...(r.warnings || [])];
+                  return (
+                    <tr
+                      key={r.row}
+                      className={`border-t border-border ${r.blocking ? "bg-destructive/5" : hasWarn ? "bg-amber-500/5" : r.is_update ? "bg-blue-500/5" : ""}`}
+                      data-testid={`import-row-${r.row}`}
+                    >
+                      <td className="px-3 py-2 text-muted-foreground">{r.row}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{r.data.sku}</td>
+                      <td className="px-3 py-2 truncate max-w-[280px]">{r.data.name}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">{r.data.category}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{r.data.hsn || <span className="text-muted-foreground/60">—</span>}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{r.data.landing_price}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{r.data.opening_stock}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {allMsgs.length === 0 ? (
+                          <span className="text-emerald-600 inline-flex items-center gap-1"><CheckCircle size={12} /> OK</span>
+                        ) : (
+                          <span className={`inline-flex items-start gap-1 ${r.blocking ? "text-destructive" : "text-amber-600"}`}>
+                            <WarningCircle size={12} className="mt-0.5 shrink-0" />
+                            <span className="line-clamp-2">{allMsgs.join(" · ")}</span>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

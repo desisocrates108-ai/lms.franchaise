@@ -489,14 +489,49 @@ async def _validate_inventory_rows(rows: List[dict]) -> List[dict]:
     vendor_by_name = {(v.get("name") or "").strip().lower(): v for v in vendors}
     vendor_by_code = {(v.get("code") or "").strip().lower(): v for v in vendors}
 
+    # ---- First pass: derive sku list (handle auto-gen) so we can batch existence check
+    derived: list[dict] = []
+    auto_sku_counter = 0
+    for idx, r in enumerate(rows):
+        sku = (str(r.get("SKU") or "")).strip()
+        name = (str(r.get("Product Name") or "")).strip()
+        if not name and not sku:
+            continue
+        if not sku and name:
+            base = "".join(ch for ch in name.upper() if ch.isalnum() or ch == "-")[:24] or "ITEM"
+            auto_sku_counter += 1
+            sku = f"{base}-{auto_sku_counter:05d}"
+            derived.append({"idx": idx, "row": r, "sku": sku, "auto_sku": True})
+        else:
+            derived.append({"idx": idx, "row": r, "sku": sku, "auto_sku": False})
+
+    # Batch lookup of existing SKUs (single DB round-trip vs N+1)
+    all_skus = [d["sku"] for d in derived if d["sku"]]
+    existing_skus: set = set()
+    if all_skus:
+        # Mongo $in supports up to ~1000 efficiently per batch; chunk to be safe
+        for i in range(0, len(all_skus), 1000):
+            chunk = all_skus[i:i + 1000]
+            cursor = _db.products.find({"sku": {"$in": chunk}}, {"_id": 0, "sku": 1})
+            async for doc in cursor:
+                existing_skus.add(doc["sku"])
+
     sku_seen: dict = {}
     out: List[dict] = []
-    for idx, r in enumerate(rows):
+    for d in derived:
+        idx = d["idx"]
+        r = d["row"]
+        sku = d["sku"]
         errors: list[str] = []
-        sku = (r.get("SKU") or "").strip()
-        name = (r.get("Product Name") or "").strip()
-        category = (r.get("Category") or "").strip()
+        warnings: list[str] = []
+        if d["auto_sku"]:
+            warnings.append(f"SKU auto-generated → {sku}")
+
+        name = (str(r.get("Product Name") or "")).strip()
+        category = (str(r.get("Category") or "")).strip()
         hsn = str(r.get("HSN") or "").strip()
+        if hsn.endswith(".0"):
+            hsn = hsn[:-2]
         try:
             landing = float(r.get("Landing Price") or 0)
         except Exception:
@@ -517,24 +552,29 @@ async def _validate_inventory_rows(rows: List[dict]) -> List[dict]:
             safety = int(float(r.get("Safety Stock") or 0))
         except Exception:
             safety = 0
-        vendor_name = (r.get("Vendor") or "").strip()
+        vendor_name = (str(r.get("Vendor") or "")).strip()
+
+        # Truncate runaway product names
+        if len(name) > 200:
+            warnings.append(f"Product name truncated from {len(name)} → 200 chars")
+            name = name[:200].strip()
 
         if not sku:
             errors.append("SKU is required")
         elif sku in sku_seen:
             errors.append(f"Duplicate SKU in upload (row {sku_seen[sku] + 1})")
-        else:
-            existing = await _db.products.find_one({"sku": sku}, {"_id": 0, "id": 1})
-            if existing:
-                errors.append("SKU already exists in DB — will UPDATE")
+        elif sku in existing_skus:
+            warnings.append("SKU already exists in DB — will UPDATE")
         if sku:
             sku_seen[sku] = idx
         if not name:
             errors.append("Product Name required")
         if not category:
-            errors.append("Category required")
-        if not hsn or not hsn.isdigit() or not (4 <= len(hsn) <= 8):
-            errors.append("HSN must be 4–8 digit numeric")
+            category = "Uncategorized"
+            warnings.append("Category defaulted to 'Uncategorized'")
+        if hsn and (not hsn.isdigit() or not (4 <= len(hsn) <= 8)):
+            warnings.append(f"HSN '{hsn}' is not 4–8 digit numeric — will be cleared")
+            hsn = ""
         if landing < 0:
             errors.append("Invalid Landing Price")
         if mrp < 0:
@@ -548,16 +588,17 @@ async def _validate_inventory_rows(rows: List[dict]) -> List[dict]:
             if v:
                 vendor_match = v
             else:
-                errors.append(f"Vendor '{vendor_name}' not found")
+                warnings.append(f"Vendor '{vendor_name}' not found — will leave unassigned")
 
+        is_update = any(w.startswith("SKU already exists") for w in warnings)
         out.append({
             "row": idx + 1,
             "data": {
                 "sku": sku, "name": name, "category": category, "hsn": hsn,
-                "part_number": (r.get("Part Number") or "").strip(),
-                "oem_number": (r.get("OEM Number") or "").strip(),
-                "barcode": (r.get("Barcode") or "").strip(),
-                "rack_location": (r.get("Rack Location") or "").strip(),
+                "part_number": (str(r.get("Part Number") or "")).strip(),
+                "oem_number": (str(r.get("OEM Number") or "")).strip(),
+                "barcode": (str(r.get("Barcode") or "")).strip(),
+                "rack_location": (str(r.get("Rack Location") or "")).strip(),
                 "landing_price": max(0, landing),
                 "mrp": max(0, mrp),
                 "opening_stock": max(0, opening),
@@ -567,17 +608,54 @@ async def _validate_inventory_rows(rows: List[dict]) -> List[dict]:
                 "vendor_name": vendor_match["name"] if vendor_match else "",
             },
             "errors": errors,
-            "is_update": any(e.startswith("SKU already exists") for e in errors),
-            "blocking": any(not e.startswith("SKU already exists") for e in errors),
+            "warnings": warnings,
+            "is_update": is_update,
+            "blocking": len(errors) > 0,
         })
+    return out
+
+
+# Column aliases — map common exports (Vyapar, Zoho, Tally) to our internal schema
+_COLUMN_ALIASES = {
+    "Product Name": ["item name", "item name*", "product name", "product", "name", "description"],
+    "SKU": ["sku", "item code", "code", "product code", "item id"],
+    "Part Number": ["part number", "part no", "part#", "part_no"],
+    "OEM Number": ["oem number", "oem no", "oem"],
+    "Category": ["category", "categories", "item category", "group"],
+    "HSN": ["hsn", "hsn code", "hsn/sac"],
+    "Barcode": ["barcode", "ean", "upc"],
+    "Rack Location": ["rack location", "rack", "location", "item location", "warehouse location"],
+    "Vendor": ["vendor", "supplier", "vendor name", "primary vendor"],
+    "Landing Price": ["landing price", "purchase price", "cost price", "cost", "buying price"],
+    "MRP": ["mrp", "sale price", "retail price", "selling price", "list price"],
+    "Opening Stock": ["opening stock", "current stock quantity", "current stock", "stock", "qty", "quantity", "stock qty"],
+    "Reorder Qty": ["reorder qty", "reorder quantity", "reorder", "reorder level"],
+    "Safety Stock": ["safety stock", "minimum stock quantity", "min stock", "minimum stock", "min qty"],
+}
+
+
+def _normalize_row(r: dict) -> dict:
+    """Map any incoming column name to our canonical schema using _COLUMN_ALIASES."""
+    # Build lower-case key map of the incoming row
+    lower_map = {(k or "").strip().lower(): k for k in r.keys()}
+    out: dict = {}
+    for canonical, aliases in _COLUMN_ALIASES.items():
+        for alias in aliases:
+            if alias in lower_map:
+                out[canonical] = r[lower_map[alias]]
+                break
     return out
 
 
 def _read_inventory_upload(path: str) -> List[dict]:
     import pandas as pd
-    df = pd.read_excel(path, sheet_name=0) if not path.lower().endswith(".csv") else pd.read_csv(path)
+    if path.lower().endswith(".csv"):
+        df = pd.read_csv(path, dtype=str, keep_default_na=False)
+    else:
+        df = pd.read_excel(path, sheet_name=0, dtype=str)
     df = df.dropna(how="all")
-    return df.fillna("").to_dict(orient="records")
+    raw = df.fillna("").to_dict(orient="records")
+    return [_normalize_row(r) for r in raw]
 
 
 @router.post("/inventory/import/validate", tags=["inventory"])
@@ -595,8 +673,10 @@ async def validate_import(file: UploadFile = File(...),
     return {
         "total_rows": len(validated),
         "blocking_rows": sum(1 for r in validated if r["blocking"]),
+        "warnings_rows": sum(1 for r in validated if not r["blocking"] and r.get("warnings")),
         "updates": sum(1 for r in validated if r["is_update"] and not r["blocking"]),
         "new": sum(1 for r in validated if not r["is_update"] and not r["blocking"]),
+        "detected_columns": list(rows[0].keys()) if rows else [],
         "rows": validated,
         "upload_path": save_path,
     }
