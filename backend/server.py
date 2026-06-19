@@ -994,6 +994,7 @@ async def dispatch_indent(
     dc = DeliveryChallan(
         dc_number=dc_num,
         indent_id=iid,
+        indent_number=indent.get("indent_number", ""),
         franchise_id=indent["franchise_id"],
         franchise_name=indent["franchise_name"],
         transporter_name=transporter_name,

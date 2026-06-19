@@ -310,6 +310,7 @@ class DeliveryChallan(BaseModel):
     id: str = Field(default_factory=gen_id)
     dc_number: str
     indent_id: str
+    indent_number: str = ""
     franchise_id: str
     franchise_name: str = ""
     transporter_name: str = ""

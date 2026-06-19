@@ -588,12 +588,13 @@ def _render_dc_pdf(dc: dict, franchise: dict) -> bytes:
     qr_buf.seek(0)
 
     elements = []
-    company_block = f"<b>{ORG_NAME}</b><br/><font size=8 color='#6b7280'>Hub &amp; Spoke Distribution</font>"
+    company_block = f"<b>{ORG_NAME}</b><br/><font size=8 color='#6b7280'>Hub &amp; Spoke Automotive Distribution</font>"
     header = Table([[
         Paragraph(company_block, h1),
         Paragraph(f"<para align='right'><b>DELIVERY CHALLAN</b><br/>"
                   f"<font size=9 color='#6b7280'>{dc.get('dc_number', '')}</font><br/>"
-                  f"<font size=8 color='#6b7280'>Date: {(dc.get('created_at') or '')[:10]}</font></para>", sub),
+                  f"<font size=8 color='#6b7280'>Date: {(dc.get('created_at') or '')[:10]}</font><br/>"
+                  f"<font size=8 color='#6b7280'>Indent Ref: {dc.get('indent_number', dc.get('indent_id', '—'))}</font></para>", sub),
     ]], colWidths=[270, 245])
     header.setStyle(TableStyle([
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),

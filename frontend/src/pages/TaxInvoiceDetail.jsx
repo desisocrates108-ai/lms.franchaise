@@ -145,6 +145,7 @@ export default function TaxInvoiceDetail() {
     setSaving(true);
     try {
       const payload = {
+        invoice_number: inv.invoice_number || undefined,
         invoice_date: inv.invoice_date,
         due_date: inv.due_date,
         franchise_id: inv.franchise_id,
@@ -345,6 +346,7 @@ export default function TaxInvoiceDetail() {
               <div><Label>Place of Supply</Label><Input value={inv.place_of_supply || ""} onChange={(e) => upd({ place_of_supply: e.target.value })} disabled={!editable} placeholder="e.g. 29-Karnataka" /></div>
               <div><Label>Contact Email</Label><Input value={inv.contact_email || ""} onChange={(e) => upd({ contact_email: e.target.value })} disabled={!editable} data-testid="contact_email" /></div>
               <div><Label>Contact Phone</Label><Input value={inv.contact_phone || ""} onChange={(e) => upd({ contact_phone: e.target.value })} disabled={!editable} /></div>
+              <div><Label>Invoice Number {inv.id && inv.status !== "draft" && <span className="text-[10px] text-amber-600">(override)</span>}</Label><Input value={inv.invoice_number || ""} onChange={(e) => upd({ invoice_number: e.target.value })} disabled={!editable} placeholder="Auto-generated on Issue" data-testid="invoice_number" /></div>
               <div><Label>Invoice Date</Label><Input type="date" value={inv.invoice_date || ""} onChange={(e) => upd({ invoice_date: e.target.value })} disabled={!editable} data-testid="invoice_date" /></div>
               <div><Label>Due Date</Label><Input type="date" value={inv.due_date || ""} onChange={(e) => upd({ due_date: e.target.value })} disabled={!editable} /></div>
               <div><Label>Payment Terms</Label><Input value={inv.payment_terms || ""} onChange={(e) => upd({ payment_terms: e.target.value })} disabled={!editable} /></div>

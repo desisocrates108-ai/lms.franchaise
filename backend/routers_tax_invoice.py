@@ -455,6 +455,7 @@ async def get_tax_invoice(tid: str, user: dict = Depends(get_current_user)):
 
 
 class TaxInvoiceUpdateIn(BaseModel):
+    invoice_number: Optional[str] = None  # super_admin override allowed (Phase 4)
     invoice_date: Optional[str] = None
     due_date: Optional[str] = None
     franchise_id: Optional[str] = None
@@ -483,6 +484,13 @@ async def update_tax_invoice(tid: str, body: TaxInvoiceUpdateIn, request: Reques
         raise HTTPException(409, "Cannot edit a cancelled invoice")
 
     patch_in = body.model_dump(exclude_none=True)
+    # Invoice number override — must be unique (Phase 4)
+    if patch_in.get("invoice_number") and patch_in["invoice_number"] != cur.get("invoice_number"):
+        existing = await _db.tax_invoices.find_one(
+            {"invoice_number": patch_in["invoice_number"], "id": {"$ne": tid}}, {"_id": 0, "id": 1}
+        )
+        if existing:
+            raise HTTPException(409, f"Invoice number {patch_in['invoice_number']} already in use")
     # If line_items changed → recompute totals
     if "line_items" in patch_in:
         new_lines = []
@@ -700,14 +708,14 @@ def _render_tax_invoice_pdf(inv: dict, org: dict) -> bytes:
     small = ParagraphStyle("sm", parent=styles["Normal"], fontSize=7, leading=9, textColor=colors.HexColor("#555"))
     label = ParagraphStyle("lb", parent=styles["Normal"], fontSize=7, leading=9, textColor=colors.HexColor("#777"))
     big = ParagraphStyle("bg", parent=styles["Normal"], fontSize=11, leading=14, textColor=colors.black, alignment=0, spaceAfter=2)
-    title = ParagraphStyle("ttl", parent=styles["Normal"], fontSize=14, leading=18, alignment=1, spaceAfter=3, textColor=colors.HexColor("#111"))
+    title = ParagraphStyle("ttl", parent=styles["Normal"], fontSize=16, leading=20, alignment=1, spaceAfter=3, textColor=colors.white, backColor=colors.HexColor("#7a1f1f"), borderPadding=6)
     subtitle = ParagraphStyle("sub", parent=styles["Normal"], fontSize=9, leading=11, alignment=1, textColor=colors.HexColor("#555"))
 
     elements: list = []
 
     # ---- Title bar ----
     elements.append(Paragraph(f"<b>TAX INVOICE</b>", title))
-    elements.append(Paragraph("Original for Recipient", subtitle))
+    elements.append(Paragraph(f"Original for Recipient &nbsp;·&nbsp; {'Inter-State Supply (IGST)' if inv.get('is_inter_state') else 'Intra-State Supply (CGST + SGST)'}", subtitle))
     elements.append(Spacer(1, 4))
 
     # ---- Header: org info + invoice meta ----
