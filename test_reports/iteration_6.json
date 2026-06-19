@@ -1,0 +1,67 @@
+{
+  "summary": "Phases 3-8 backend regression. Wrote /app/backend/tests/test_v23_phases3to8.py with 11 tests covering field relaxation, editable invoice_number + uniqueness, TI/DC PDFs, Credit Note full lifecycle + inventory + audit, Debit Note lifecycle, role guards, and audit-log presence. 10/11 pass. The 1 failing test surfaces a CRITICAL inventory bug: Credit Note issue does NOT increase the visible product hub_stock (and Debit Note issue does NOT decrement it) because routers_returns.py calls _adjust_stock with location_id='hub' while the rest of the system uses 'hub-main'. The adjust_stock helper find_one'ed nothing, INSERTED a phantom second stock row (location_id='hub'), so the real hub stock row (location_id='hub-main') stays unchanged. get_hub_stock returns the phantom OR the real row depending on Mongo find order — confirmed via DB: two parallel rows exist for the same product. Existing 8 v23 returns tests still pass (because they only assert API responses, not the actual delta in hub_stock). Existing 21 v22 tax-invoice tests untouched. Phase 3 field relaxation works: indent creates with only franchise_id + line_items.requested_qty, dispatch accepts only transporter_name. Phase 4 invoice_number editable + 409 on duplicate confirmed. Phase 4/5 PDFs return %PDF-1.4 bytes correctly. CN-2026-XXXX and DN-2026-XXXX numbering confirmed. Audit logs contain credit_note.issue + debit_note.issue. Franchise role 403 on debit-notes, 200/scoped on credit-notes. Frontend UI smoke could not be completed: Playwright clicks on the 'Sign in' button did not submit the form (page stayed on /login after 4s wait), so detail-page testids (cn-new-btn, cn-mode-invoice, dn-new-btn, invoice_number) could not be visually verified — they are PRESENT in source (CreditNotes.jsx, DebitNotes.jsx, TaxInvoiceDetail.jsx line 348) per the review request. Main agent should self-verify the UI in browser.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/credit-notes/{id}/issue  AND  POST /api/debit-notes/{id}/issue",
+        "issue": "Inventory restock/destock is WRITTEN to a phantom stock row. routers_returns.py calls _adjust_stock(pid, qty, 'hub', 'hub', ...) but every other module uses location_id='hub-main' (see server.py:390 default, server.py:620, server.py:1185). Result: db.stock ends up with TWO rows per product where location_type='hub' — one with location_id='hub-main' (real, used by indents/dispatch) and one with location_id='hub' (created by Returns Engine). The stock_movement log row is written correctly (delta=+3 confirmed in DB) but the user-visible hub_stock value DOES NOT change. Fix: in routers_returns.py replace the 4 occurrences of `_adjust_stock(pid, ..., 'hub', 'hub', ...)` with `_adjust_stock(pid, ..., 'hub', 'hub-main', ...)` (or read the canonical hub location_id from a constant).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/debit-notes/{id}/issue",
+        "issue": "Role guard restricts issue to super_admin + hub_accountant only. The review request explicitly states warehouse_manager should be able to log in and issue debit notes. Currently warehouse@servall.com gets 403 on the issue endpoint (create + edit + PDF work fine). Fix: add 'warehouse_manager' to require_roles(...) on routers_returns.py:528 (issue_debit_note) and likely line 563 (cancel_debit_note) for parity.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/indents/{id}/dispatch",
+        "issue": "Uses multipart/form-data (Form fields) while other write endpoints use JSON. Not a bug per se — but if the frontend posts JSON it will get 422. Verify frontend uses FormData."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "LoginForm (browser-automation only)",
+        "issue": "Programmatic click on the Sign-in button via Playwright did not submit the form (page stayed on /login after 4s). Real users in browsers likely work fine (form submits on Enter). Suggest adding type='submit' to the button if not already, or wiring an onClick handler. Could not validate via automation — flagging as need-self-test.",
+        "selector": "button:has-text('Sign in')",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v23_phases3to8.py",
+    "/app/test_reports/pytest/phases3to8.xml"
+  ],
+  "action_items": [
+    "FIX #1 (CRITICAL): routers_returns.py — change all 4 _adjust_stock calls from location_id='hub' to location_id='hub-main' (lines 358, 383, 551, 575). Then run `pytest tests/test_v23_phases3to8.py::TestPhase6CreditNote::test_cn_full_lifecycle_with_inventory_and_audit -v` to confirm the inventory test passes and stock actually moves.",
+    "FIX #2: Add 'warehouse_manager' to require_roles on routers_returns.py:528 (issue_debit_note) and 563 (cancel_debit_note).",
+    "DATA CLEANUP: After fixing #1, the DB has duplicate hub stock rows with location_id='hub' that were created during testing. Run a one-time migration to merge their qty into the canonical 'hub-main' row, then delete the phantoms.",
+    "Self-verify UI: manually log in as admin and exercise /credit-notes new flow + /debit-notes new flow + /tax-invoices invoice_number edit + duplicate 409 surfacing.",
+    "Consider adding e2e Playwright tests that read hub_stock via GET /api/products/{pid} before/after CN issue to lock-in the inventory contract (similar pattern as test_v23_phases3to8::test_cn_full_lifecycle_with_inventory_and_audit)."
+  ],
+  "critical_code_review_comments": [
+    "Phantom stock-row bug (above) — biggest issue. The shared adjust_stock helper silently CREATES a new row when find_one misses, so a typo in location_id never raises an error and silently corrupts inventory accounting.",
+    "routers_returns.py issue/cancel handlers wrap _adjust_stock in try/except logger.warning — this swallows the bug above. At minimum, log full traceback; better, fail the issue request if stock adjustment fails atomically.",
+    "Role consistency: list/create/edit/PDF allow warehouse_manager but issue/cancel block them — confusing UX. Either give warehouse_manager full DN lifecycle or restrict the earlier endpoints too.",
+    "Indent dispatch uses Form fields while other indent endpoints use JSON — inconsistent API surface.",
+    "stock_movements rows are written before adjust_stock confirms the update (line 168-178 server.py) — if update_one fails the movement is still logged. Should be transactional or write movement AFTER successful $set.",
+    "Phase 4 invoice_number 409 — works. Phase 5 DC PDF includes indent_number — works (asserted in test_delivery_challan_pdf_includes_indent_ref). Phase 8 audit_logs contain credit_note.issue and debit_note.issue — works."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v23_phases3to8.py"
+  ],
+  "success_rate": {
+    "backend": "10/11 phase3-8 tests pass (91%); 8/8 v23 returns tests still pass; 21/21 v22 tax invoice tests still pass. The 1 failing test surfaces a real CRITICAL inventory bug.",
+    "frontend": "Not visually verified — login form click via Playwright did not submit. Main agent should self-test."
+  },
+  "test_credentials": "admin@servall.com/Admin@123, accountant@servall.com/Accountant@123, warehouse@servall.com/Warehouse@123, franchise@servall.com/Franchise@123 — all valid.",
+  "seed_data_creation": "Created 1-2 TEST credit notes + 1 TEST debit note + 1 TEST dispatch (DC-0007) + edited invoice_number on 1 existing tax invoice (TEST-EDIT-<ts>). Duplicate phantom hub stock row was created by the buggy adjust_stock call (location_id='hub') — see action items for cleanup.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the location_id='hub' → 'hub-main' bug in routers_returns.py and adds warehouse_manager to DN issue/cancel role list, re-run `cd /app/backend && python -m pytest tests/test_v23_phases3to8.py -v`. Expected: 11/11 pass. Also verify hub_stock changes correctly across CN issue→cancel and DN issue→cancel cycles. For UI: ensure /tax-invoices/new route bug (from iteration 5) is also fixed — that was a separate bug; check the [data-testid=invoice_number] is editable when status != 'cancelled'. Test files committed: /app/backend/tests/test_v23_phases3to8.py (use this as regression).",
+  "rca of the issue": "RCA — Credit/Debit Note inventory does not move:\n1. Reproduction: POST /api/credit-notes (manual, franchise_id, line_items with qty=3) → POST /api/credit-notes/{id}/issue → GET /api/products/{pid}. hub_stock UNCHANGED.\n2. Investigation: stock_movement row IS created (delta=+3, reason='credit_note'). So _adjust_stock was reached.\n3. Query db.stock for that product: TWO rows with location_type='hub' — one (id=2714506e..., location_id='hub-main', quantity=77) used by all indent/dispatch flows; a NEW one (id=98a2d2f5..., location_id='hub', quantity=6) created by the Credit Note flow.\n4. Root cause: routers_returns.py lines 358, 383, 551, 575 call _adjust_stock with location_id='hub'. The central adjust_stock helper (server.py:131) does find_one({location_type, location_id}) — misses (because the real row has location_id='hub-main') — then INSERTS a NEW StockItem with location_id='hub' (server.py:150-158). The phantom row accumulates with each CN/DN issue but get_hub_stock returns whichever row Mongo returns first for {location_type:'hub'} (typically the older 'hub-main' row), so the user sees the unchanged value.\n5. Mitigation: change the 4 callsites' location_id from 'hub' to 'hub-main'. After the fix, also run a one-time merge of the 'hub' phantom rows into 'hub-main' and delete the phantoms.\n6. Why it slipped: routers_returns.py wraps _adjust_stock in try/except logger.warning — no exception is raised even if the wrong row is created. The existing test_v23_returns.py only asserts API status codes and cn_number/dn_number format, not the actual hub_stock delta — so this bug was invisible until we wrote test_cn_full_lifecycle_with_inventory_and_audit which queries GET /api/products/{pid} before/after."
+}
