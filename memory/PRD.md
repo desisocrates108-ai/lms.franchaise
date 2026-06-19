@@ -1,4 +1,4 @@
-# Servall Nexus ERP — PRD
+# Servall ERP — PRD
 
 ## Original Problem
 Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler automotive spare parts distribution network operating on a Hub-and-Spoke model. Replace Vyapar with a custom, premium, scalable ERP. Aesthetics: Apple-minimal + Notion-clean + Zoho-robust.
@@ -109,4 +109,16 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - **Reconciliation UX**: triple confidence chip cluster (Combined / LLM / Heuristic), per-row source badge, per-row C/L/H mini-chips, inline product picker for unmatched/mismatched rows, "Remember this alias on commit" checkbox (default on), Vendor-vs-System totals reconciliation panel before commit.
 - **API contract**: backward compatible — all new fields additive with safe defaults. Existing `confidence_score` continues to work.
 - **Tests**: +15 new tests in `test_v22_ocr_module.py`. Full suite 113/113 passing.
+
+
+### v2.3 — Phase 1: Critical Fixes (Feb 2026)
+- **Rebrand**: "Servall Nexus" → "Servall" everywhere except test fixtures.
+- **PO Quantity leading-zero bug** fixed across PurchaseOrders.jsx, NewOrder.jsx, Indents.jsx (fulfill input).
+- **Role restrictions** enforced at both frontend (Layout.jsx sidebar) and backend (require_roles on /purchase-orders, /vendors, /audit-logs, /cycle-counts, /pricing, /aging, /bulk-import, /stock-entry). Franchise sees only Dashboard / Indents / Delivery Challans / Tax Invoices.
+- **Editable PO dates** (`po_date`, `expected_delivery`) on POST/PUT `/api/purchase-orders` with date inputs in PurchaseOrders.jsx.
+- **Global Axios error handling** with toast surfacing (401 → logout, 403/404/500/network errors).
+- **ErrorBoundary** wired at App root + per-route. Prevents blank screens on render crashes; provides Reload + Try-again.
+- **Removed dead nav** for Credit/Debit Notes (will be added in Phase 5).
+- Tests: 134/134 backend pytest passing. Franchise role enforcement, PO date persistence, and login flow verified via Playwright + curl.
+- Local commit: `6ab7bb1` (after prior auto-commit `f5de7a7`).
 
