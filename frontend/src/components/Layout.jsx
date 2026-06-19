@@ -20,8 +20,6 @@ const NAV = [
   { to: "/indents", label: "Indents", icon: Receipt, roles: null },
   { to: "/delivery-challans", label: "Delivery Challans", icon: Truck, roles: null },
   { to: "/tax-invoices", label: "Tax Invoices", icon: InvoiceIcon, roles: ["super_admin", "hub_accountant", "franchise_manager"] },
-  { to: "/credit-notes", label: "Credit Notes", icon: Receipt, roles: ["super_admin", "hub_accountant", "warehouse_manager", "franchise_manager"] },
-  { to: "/debit-notes", label: "Debit Notes", icon: Receipt, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/aging", label: "Inventory Aging", icon: ChartBar, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/cycle-count", label: "Cycle Count", icon: ListMagnifyingGlass, roles: ["super_admin", "warehouse_manager"] },
   { to: "/pricing", label: "Pricing Engine", icon: CurrencyInr, roles: ["super_admin", "hub_accountant"] },

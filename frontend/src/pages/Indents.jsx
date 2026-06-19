@@ -487,12 +487,18 @@ export default function Indents() {
                         ) : (
                           <Input
                             type="number"
+                            inputMode="numeric"
                             min={0}
                             max={maxAllowed}
-                            value={fulfillQtys[li.product_id] ?? 0}
+                            value={fulfillQtys[li.product_id] ?? ""}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) => {
-                              let v = Number(e.target.value || 0);
-                              if (v < 0) v = 0;
+                              let raw = e.target.value;
+                              if (typeof raw === "string" && raw.length > 1 && raw.startsWith("0") && !raw.startsWith("0.")) {
+                                raw = raw.replace(/^0+/, "") || "0";
+                              }
+                              let v = raw === "" ? 0 : Number(raw);
+                              if (Number.isNaN(v) || v < 0) v = 0;
                               if (v > maxAllowed) v = maxAllowed;
                               setFulfillQtys((s) => ({ ...s, [li.product_id]: v }));
                             }}

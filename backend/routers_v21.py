@@ -818,6 +818,7 @@ async def create_po(body: POSaveRequest, request: Request,
     if body.expected_delivery:
         po_doc["expected_delivery"] = body.expected_delivery
     await _db.purchase_orders.insert_one(po_doc)
+    po_doc.pop("_id", None)
     await _log_audit(user, "po.create_manual", "purchase_order", po.id,
                      after={"vendor": vendor["name"], "total": total, "lines": len(lines)},
                      request=request)

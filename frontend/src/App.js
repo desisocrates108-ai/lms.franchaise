@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import Layout from "@/components/Layout";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Inventory from "@/pages/Inventory";
@@ -30,42 +31,44 @@ function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
-  return <Layout>{children}</Layout>;
+  return <Layout><ErrorBoundary>{children}</ErrorBoundary></Layout>;
 }
 
 function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
-            <Route path="/inventory" element={<RequireAuth><Inventory /></RequireAuth>} />
-            <Route path="/stock-entry" element={<RequireAuth><StockEntry /></RequireAuth>} />
-            <Route path="/vendors" element={<RequireAuth><Vendors /></RequireAuth>} />
-            <Route path="/franchises" element={<RequireAuth><Franchises /></RequireAuth>} />
-            <Route path="/indents" element={<RequireAuth><Indents /></RequireAuth>} />
-            <Route path="/purchase-orders" element={<RequireAuth><PurchaseOrders /></RequireAuth>} />
-            <Route path="/delivery-challans" element={<RequireAuth><DeliveryChallans /></RequireAuth>} />
-            <Route path="/aging" element={<RequireAuth><Aging /></RequireAuth>} />
-            <Route path="/cycle-count" element={<RequireAuth><CycleCount /></RequireAuth>} />
-            <Route path="/pricing" element={<RequireAuth><Pricing /></RequireAuth>} />
-            <Route path="/pricing/tiers" element={<RequireAuth><FranchiseTiers /></RequireAuth>} />
-            <Route path="/inventory/bulk-import" element={<RequireAuth><BulkImport /></RequireAuth>} />
-            <Route path="/indents/new" element={<RequireAuth><NewOrder /></RequireAuth>} />
-            <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
-            <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-            <Route path="/tax-invoices" element={<RequireAuth><TaxInvoices /></RequireAuth>} />
-            <Route path="/tax-invoices/new" element={<RequireAuth><TaxInvoiceDetail /></RequireAuth>} />
-            <Route path="/tax-invoices/:id" element={<RequireAuth><TaxInvoiceDetail /></RequireAuth>} />
-            <Route path="/settings/org" element={<RequireAuth><OrgSettings /></RequireAuth>} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-        <Toaster richColors position="top-right" />
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+              <Route path="/inventory" element={<RequireAuth><Inventory /></RequireAuth>} />
+              <Route path="/stock-entry" element={<RequireAuth><StockEntry /></RequireAuth>} />
+              <Route path="/vendors" element={<RequireAuth><Vendors /></RequireAuth>} />
+              <Route path="/franchises" element={<RequireAuth><Franchises /></RequireAuth>} />
+              <Route path="/indents" element={<RequireAuth><Indents /></RequireAuth>} />
+              <Route path="/purchase-orders" element={<RequireAuth><PurchaseOrders /></RequireAuth>} />
+              <Route path="/delivery-challans" element={<RequireAuth><DeliveryChallans /></RequireAuth>} />
+              <Route path="/aging" element={<RequireAuth><Aging /></RequireAuth>} />
+              <Route path="/cycle-count" element={<RequireAuth><CycleCount /></RequireAuth>} />
+              <Route path="/pricing" element={<RequireAuth><Pricing /></RequireAuth>} />
+              <Route path="/pricing/tiers" element={<RequireAuth><FranchiseTiers /></RequireAuth>} />
+              <Route path="/inventory/bulk-import" element={<RequireAuth><BulkImport /></RequireAuth>} />
+              <Route path="/indents/new" element={<RequireAuth><NewOrder /></RequireAuth>} />
+              <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
+              <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
+              <Route path="/tax-invoices" element={<RequireAuth><TaxInvoices /></RequireAuth>} />
+              <Route path="/tax-invoices/new" element={<RequireAuth><TaxInvoiceDetail /></RequireAuth>} />
+              <Route path="/tax-invoices/:id" element={<RequireAuth><TaxInvoiceDetail /></RequireAuth>} />
+              <Route path="/settings/org" element={<RequireAuth><OrgSettings /></RequireAuth>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+          <Toaster richColors position="top-right" />
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 
