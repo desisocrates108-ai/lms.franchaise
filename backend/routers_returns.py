@@ -355,7 +355,7 @@ async def issue_credit_note(cnid: str, request: Request,
         qty = float(li.get("qty") or 0)
         if pid and qty > 0:
             try:
-                await _adjust_stock(pid, qty, "hub", "hub", "credit_note", cnid, user)
+                await _adjust_stock(pid, qty, "hub", "hub-main", "credit_note", cnid, user)
             except Exception as e:
                 logger.warning(f"credit_note restock failed for {pid}: {e}")
 
@@ -380,7 +380,7 @@ async def cancel_credit_note(cnid: str, request: Request,
             qty = float(li.get("qty") or 0)
             if pid and qty > 0:
                 try:
-                    await _adjust_stock(pid, -qty, "hub", "hub", "credit_note_cancel", cnid, user)
+                    await _adjust_stock(pid, -qty, "hub", "hub-main", "credit_note_cancel", cnid, user)
                 except Exception as e:
                     logger.warning(f"credit_note cancel-reverse failed for {pid}: {e}")
     await _db.credit_notes.update_one({"id": cnid},
@@ -560,7 +560,7 @@ async def issue_debit_note(dnid: str, request: Request,
 @router.post("/debit-notes/{dnid}/cancel", tags=["returns"])
 async def cancel_debit_note(dnid: str, request: Request,
                              reason: str = "",
-                             user: dict = Depends(require_roles("super_admin", "hub_accountant"))):
+                             user: dict = Depends(require_roles("super_admin", "hub_accountant", "warehouse_manager"))):
     doc = await _db.debit_notes.find_one({"id": dnid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Not found")
@@ -572,7 +572,7 @@ async def cancel_debit_note(dnid: str, request: Request,
             qty = float(li.get("qty") or 0)
             if pid and qty > 0:
                 try:
-                    await _adjust_stock(pid, qty, "hub", "hub", "debit_note_cancel", dnid, user)
+                    await _adjust_stock(pid, qty, "hub", "hub-main", "debit_note_cancel", dnid, user)
                 except Exception as e:
                     logger.warning(f"debit_note cancel-reverse failed for {pid}: {e}")
     await _db.debit_notes.update_one({"id": dnid},
