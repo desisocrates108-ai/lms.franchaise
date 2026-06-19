@@ -1,4 +1,4 @@
-"""Pydantic models for Servall Nexus ERP."""
+"""Pydantic models for Servall ERP."""
 from datetime import datetime, timezone
 from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -407,7 +407,7 @@ class OrganizationSettings(BaseModel):
     """Singleton — keyed by id='org-settings'."""
     model_config = ConfigDict(extra="ignore")
     id: str = "org-settings"
-    legal_name: str = "Servall Nexus Pvt Ltd"
+    legal_name: str = "Servall Pvt Ltd"
     trade_name: str = ""
     address_line1: str = ""
     address_line2: str = ""

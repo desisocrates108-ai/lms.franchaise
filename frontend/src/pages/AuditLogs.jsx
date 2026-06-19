@@ -43,7 +43,7 @@ export default function AuditLogs() {
         <div>
           <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Compliance</div>
           <h1 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-2">Audit Logs</h1>
-          <p className="text-sm text-muted-foreground mt-1">Immutable trail of every action across Servall Nexus.</p>
+          <p className="text-sm text-muted-foreground mt-1">Immutable trail of every action across Servall.</p>
         </div>
         <div className="flex items-center gap-2">
           <Input value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} placeholder="Filter action…" className="w-44 h-9 text-sm" data-testid="audit-action-filter" />

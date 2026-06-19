@@ -200,10 +200,15 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
     }]);
     setSearch("");
   };
-  const updateQty = (id, qty) => setItems(items.map((i) => i.product_id === id ? { ...i, requested_qty: Math.max(1, Number(qty) || 1) } : i));
+  const updateQty = (id, qty) => {
+    // Allow empty/intermediate string; sanitize leading zeros; cap at save time.
+    let next = qty;
+    if (typeof qty === "string" && qty.length > 1 && qty.startsWith("0")) next = qty.replace(/^0+/, "") || "0";
+    setItems(items.map((i) => i.product_id === id ? { ...i, requested_qty: next } : i));
+  };
   const remove = (id) => setItems(items.filter((i) => i.product_id !== id));
 
-  const total = items.reduce((s, i) => s + i.price * i.requested_qty, 0);
+  const total = items.reduce((s, i) => s + i.price * (Number(i.requested_qty) || 0), 0);
 
   const submit = async () => {
     if (!franchiseId) { toast.error("Pick a franchise"); return; }
@@ -214,7 +219,7 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
         franchise_id: franchiseId,
         priority,
         notes,
-        line_items: items.map(i => ({ product_id: i.product_id, requested_qty: i.requested_qty })),
+        line_items: items.map(i => ({ product_id: i.product_id, requested_qty: Math.max(1, Number(i.requested_qty) || 1) })),
       });
       onSubmitted({ indent: r.data });
       toast.success(`Indent ${r.data.indent_number} created`);
@@ -259,9 +264,9 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
                     <td className="px-3 py-2">{i.name}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatINR(i.price)}</td>
                     <td className="px-3 py-2 text-right">
-                      <Input type="number" min={1} value={i.requested_qty} onChange={(e) => updateQty(i.product_id, e.target.value)} className="w-20 ml-auto h-8" data-testid={`sys-qty-${i.sku}`} />
+                      <Input type="number" inputMode="numeric" min={1} value={i.requested_qty ?? ""} onFocus={(e) => e.target.select()} onChange={(e) => updateQty(i.product_id, e.target.value)} className="w-20 ml-auto h-8" data-testid={`sys-qty-${i.sku}`} />
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatINR(i.price * i.requested_qty)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatINR(i.price * (Number(i.requested_qty) || 0))}</td>
                     <td className="px-3 py-2 text-right">
                       <button onClick={() => remove(i.product_id)} className="rounded p-1 hover:bg-destructive/10 text-destructive" data-testid={`sys-remove-${i.sku}`}><Trash size={14} /></button>
                     </td>

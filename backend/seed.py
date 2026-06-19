@@ -1,4 +1,4 @@
-"""Idempotent demo data seeder for Servall Nexus ERP."""
+"""Idempotent demo data seeder for Servall ERP."""
 import logging
 from datetime import datetime, timezone, timedelta
 from auth_utils import hash_password
@@ -234,7 +234,7 @@ async def seed_demo_data(db):
 
         # Welcome notifications
         await db.notifications.insert_many([
-            Notification(role="super_admin", title="Welcome to Servall Nexus",
+            Notification(role="super_admin", title="Welcome to Servall",
                          body="Your ERP is live. Demo data has been seeded.",
                          level="success").model_dump(),
             Notification(role="warehouse_manager", title="5 SKUs need restock",

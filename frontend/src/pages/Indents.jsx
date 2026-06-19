@@ -636,7 +636,7 @@ function CreateIndentDialog({
                   {products.map((p) => <SelectItem key={p.id} value={p.id}>{p.sku} — {p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Input type="number" value={pickQty} min={1} onChange={(e) => setPickQty(Number(e.target.value))} className="w-24" data-testid="qty-input" />
+              <Input type="number" inputMode="numeric" value={pickQty ?? ""} min={1} onFocus={(e) => e.target.select()} onChange={(e) => { const v = e.target.value; setPickQty(v === "" ? "" : Math.max(1, Number(v) || 1)); }} className="w-24" data-testid="qty-input" />
               <Button onClick={addLine} variant="outline" data-testid="add-line-btn">Add</Button>
             </div>
             {newIndent.line_items.length > 0 && (

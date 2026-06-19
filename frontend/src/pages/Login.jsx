@@ -56,7 +56,7 @@ export default function Login() {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-black font-display text-lg font-bold">
               S
             </div>
-            <div className="font-display text-xl font-semibold tracking-tight">Servall Nexus</div>
+            <div className="font-display text-xl font-semibold tracking-tight">Servall</div>
           </div>
           <div className="mt-2 text-xs uppercase tracking-[0.3em] text-white/60">B2B Franchise ERP · Hub & Spoke</div>
         </div>
@@ -81,7 +81,7 @@ export default function Login() {
             ))}
           </div>
         </div>
-        <div className="relative z-10 text-xs text-white/40">© 2026 Servall Nexus</div>
+        <div className="relative z-10 text-xs text-white/40">© 2026 Servall</div>
       </div>
 
       {/* Right form */}
@@ -89,7 +89,7 @@ export default function Login() {
         <div className="mx-auto w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="flex h-8 w-8 items-center justify-center rounded bg-foreground text-background font-display text-sm font-bold">S</div>
-            <div className="font-display text-base font-semibold">Servall Nexus</div>
+            <div className="font-display text-base font-semibold">Servall</div>
           </div>
           <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Sign in</div>
           <h2 className="font-display text-3xl font-semibold mt-2 tracking-tight">Welcome back</h2>

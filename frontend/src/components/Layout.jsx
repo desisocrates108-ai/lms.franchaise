@@ -11,7 +11,7 @@ import {
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: House, roles: null },
-  { to: "/inventory", label: "Inventory", icon: Package, roles: null },
+  { to: "/inventory", label: "Inventory", icon: Package, roles: ["super_admin", "warehouse_manager", "hub_accountant"] },
   { to: "/inventory/bulk-import", label: "Bulk Import", icon: UploadSimple, roles: ["super_admin", "warehouse_manager", "hub_accountant"] },
   { to: "/stock-entry", label: "Stock Entry (OCR)", icon: FileText, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/purchase-orders", label: "Purchase Orders", icon: ClipboardText, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
@@ -20,6 +20,8 @@ const NAV = [
   { to: "/indents", label: "Indents", icon: Receipt, roles: null },
   { to: "/delivery-challans", label: "Delivery Challans", icon: Truck, roles: null },
   { to: "/tax-invoices", label: "Tax Invoices", icon: InvoiceIcon, roles: ["super_admin", "hub_accountant", "franchise_manager"] },
+  { to: "/credit-notes", label: "Credit Notes", icon: Receipt, roles: ["super_admin", "hub_accountant", "warehouse_manager", "franchise_manager"] },
+  { to: "/debit-notes", label: "Debit Notes", icon: Receipt, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/aging", label: "Inventory Aging", icon: ChartBar, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/cycle-count", label: "Cycle Count", icon: ListMagnifyingGlass, roles: ["super_admin", "warehouse_manager"] },
   { to: "/pricing", label: "Pricing Engine", icon: CurrencyInr, roles: ["super_admin", "hub_accountant"] },
@@ -61,7 +63,7 @@ export default function Layout({ children }) {
             <div className="flex h-8 w-8 items-center justify-center rounded bg-foreground text-background font-display text-sm font-bold">
               S
             </div>
-            <div className="font-display text-base font-semibold tracking-tight">Servall Nexus</div>
+            <div className="font-display text-base font-semibold tracking-tight">Servall</div>
           </Link>
           <button
             className="lg:hidden rounded p-1 hover:bg-muted"

@@ -1,4 +1,4 @@
-"""Servall Nexus ERP - Main FastAPI app."""
+"""Servall ERP - Main FastAPI app."""
 import os
 import logging
 import shutil
@@ -44,7 +44,7 @@ mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 
-app = FastAPI(title="Servall Nexus ERP")
+app = FastAPI(title="Servall ERP")
 app.state.db = db
 
 api = APIRouter(prefix="/api")
@@ -255,7 +255,7 @@ async def update_franchise(fid: str, body: Franchise, request: Request,
 
 # ============ VENDORS ============
 @api.get("/vendors", response_model=List[Vendor])
-async def list_vendors(user: dict = Depends(get_current_user)):
+async def list_vendors(user: dict = Depends(require_roles("super_admin", "hub_accountant", "warehouse_manager"))):
     docs = await db.vendors.find({}, {"_id": 0}).to_list(500)
     return docs
 
@@ -671,7 +671,7 @@ async def commit_invoice(iid: str, body: CommitInvoiceRequest, request: Request,
 
 # ============ PURCHASE ORDERS ============
 @api.get("/purchase-orders")
-async def list_pos(user: dict = Depends(get_current_user)):
+async def list_pos(user: dict = Depends(require_roles("super_admin", "hub_accountant", "warehouse_manager"))):
     docs = await db.purchase_orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return docs
 
@@ -1390,7 +1390,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_start():
-    logger.info("Starting Servall Nexus ERP backend")
+    logger.info("Starting Servall ERP backend")
     await seed_demo_data(db)
 
 

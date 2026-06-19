@@ -63,7 +63,8 @@ export default function PurchaseOrders() {
   };
 
   const openNew = () => {
-    setEditing({ vendor_id: "", line_items: [], notes: "", status: "draft" });
+    const today = new Date().toISOString().slice(0, 10);
+    setEditing({ vendor_id: "", line_items: [], notes: "", status: "draft", po_date: today, expected_delivery: "" });
     setEditorOpen(true);
   };
 
@@ -73,6 +74,8 @@ export default function PurchaseOrders() {
       vendor_id: po.vendor_id,
       notes: po.notes || "",
       status: po.status,
+      po_date: po.po_date || (po.created_at ? String(po.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10)),
+      expected_delivery: po.expected_delivery || "",
       line_items: (po.line_items || []).map((li) => ({
         product_id: li.product_id, sku: li.sku, product_name: li.product_name,
         quantity: li.quantity, unit_price: li.unit_price,
@@ -217,9 +220,20 @@ function POEditorDialog({ open, onClose, editing, setEditing, vendors, products,
   };
 
   const updateLine = (id, field, val) => {
+    // For numeric fields keep the raw string so users can clear/edit freely
+    // (prevents the "leading zero" issue when state is 0 and user types digits).
+    // Conversion to Number happens at save time.
+    const isText = field === "product_name";
+    let next = val;
+    if (!isText) {
+      // strip leading zeros except for a single "0" or "0.x"
+      if (typeof val === "string" && val.length > 1 && val.startsWith("0") && !val.startsWith("0.")) {
+        next = val.replace(/^0+/, "") || "0";
+      }
+    }
     setEditing({
       ...editing,
-      line_items: editing.line_items.map(li => li.product_id === id ? { ...li, [field]: field === "product_name" ? val : Number(val) || 0 } : li),
+      line_items: editing.line_items.map(li => li.product_id === id ? { ...li, [field]: next } : li),
     });
   };
 
@@ -238,8 +252,10 @@ function POEditorDialog({ open, onClose, editing, setEditing, vendors, products,
         vendor_id: editing.vendor_id,
         notes: editing.notes || "",
         status: saveAs,
+        po_date: editing.po_date || undefined,
+        expected_delivery: editing.expected_delivery || undefined,
         line_items: editing.line_items.map(li => ({
-          product_id: li.product_id, quantity: Number(li.quantity), unit_price: Number(li.unit_price),
+          product_id: li.product_id, quantity: Number(li.quantity) || 0, unit_price: Number(li.unit_price) || 0,
         })),
       };
       if (isEdit) await api.put(`/purchase-orders/${editing.id}`, body);
@@ -256,7 +272,7 @@ function POEditorDialog({ open, onClose, editing, setEditing, vendors, products,
       <DialogContent className="max-w-4xl">
         <DialogHeader><DialogTitle className="font-display">{isEdit ? "Edit Purchase Order" : "New Purchase Order"}</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <Label>Vendor</Label>
               <Select value={editing.vendor_id} onValueChange={(v) => setEditing({ ...editing, vendor_id: v })}>
@@ -265,6 +281,14 @@ function POEditorDialog({ open, onClose, editing, setEditing, vendors, products,
                   {vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>PO Date</Label>
+              <Input type="date" value={editing.po_date || ""} onChange={(e) => setEditing({ ...editing, po_date: e.target.value })} data-testid="po-date-input" />
+            </div>
+            <div>
+              <Label>Expected Delivery</Label>
+              <Input type="date" value={editing.expected_delivery || ""} onChange={(e) => setEditing({ ...editing, expected_delivery: e.target.value })} data-testid="po-expected-input" />
             </div>
             <div>
               <Label>Notes</Label>
@@ -304,10 +328,10 @@ function POEditorDialog({ open, onClose, editing, setEditing, vendors, products,
                     <td className="px-3 py-2 font-mono text-xs">{li.sku}</td>
                     <td className="px-3 py-2">{li.product_name}</td>
                     <td className="px-3 py-2 text-right">
-                      <Input type="number" min={1} value={li.quantity} onChange={(e) => updateLine(li.product_id, "quantity", e.target.value)} className="w-20 ml-auto h-8" data-testid={`po-qty-${li.sku}`} />
+                      <Input type="number" inputMode="numeric" min={1} value={li.quantity ?? ""} onFocus={(e) => e.target.select()} onChange={(e) => updateLine(li.product_id, "quantity", e.target.value)} className="w-20 ml-auto h-8" data-testid={`po-qty-${li.sku}`} />
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <Input type="number" min={0} step="0.01" value={li.unit_price} onChange={(e) => updateLine(li.product_id, "unit_price", e.target.value)} className="w-24 ml-auto h-8" data-testid={`po-rate-${li.sku}`} />
+                      <Input type="number" inputMode="decimal" min={0} step="0.01" value={li.unit_price ?? ""} onFocus={(e) => e.target.select()} onChange={(e) => updateLine(li.product_id, "unit_price", e.target.value)} className="w-24 ml-auto h-8" data-testid={`po-rate-${li.sku}`} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatINR((Number(li.quantity) || 0) * (Number(li.unit_price) || 0))}</td>
                     <td className="px-3 py-2 text-right">

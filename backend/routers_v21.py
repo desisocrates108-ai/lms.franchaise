@@ -457,7 +457,7 @@ async def download_inventory_template(user: dict = Depends(get_current_user)):
     # Instructions sheet
     ws2 = wb.create_sheet("Instructions")
     instructions = [
-        "Servall Nexus ERP — Bulk Inventory Import Template",
+        "Servall ERP — Bulk Inventory Import Template",
         "",
         "Required columns:  SKU, Product Name, Category, HSN, Landing Price, MRP, Opening Stock",
         "Optional columns:  Part Number, OEM Number, Barcode, Rack Location, Vendor, Reorder Qty, Safety Stock",
@@ -771,6 +771,8 @@ class POSaveRequest(BaseModel):
     notes: str = ""
     line_items: List[POLineIn]
     status: Optional[str] = None  # draft | sent
+    po_date: Optional[str] = None  # YYYY-MM-DD; editable order date
+    expected_delivery: Optional[str] = None  # YYYY-MM-DD
 
 
 async def _materialize_po_lines(items: List[POLineIn]) -> tuple[List[dict], float]:
@@ -810,11 +812,16 @@ async def create_po(body: POSaveRequest, request: Request,
         auto_generated=False, notes=body.notes, created_by=user["id"],
         status=(body.status if body.status in {"draft", "sent"} else "draft"),
     )
-    await _db.purchase_orders.insert_one(po.model_dump())
+    po_doc = po.model_dump()
+    if body.po_date:
+        po_doc["po_date"] = body.po_date
+    if body.expected_delivery:
+        po_doc["expected_delivery"] = body.expected_delivery
+    await _db.purchase_orders.insert_one(po_doc)
     await _log_audit(user, "po.create_manual", "purchase_order", po.id,
                      after={"vendor": vendor["name"], "total": total, "lines": len(lines)},
                      request=request)
-    return po.model_dump()
+    return po_doc
 
 
 @router.put("/purchase-orders/{poid}", tags=["purchase_orders"])
@@ -837,6 +844,10 @@ async def update_po(poid: str, body: POSaveRequest, request: Request,
     }
     if body.status in {"draft", "sent"}:
         update["status"] = body.status
+    if body.po_date:
+        update["po_date"] = body.po_date
+    if body.expected_delivery:
+        update["expected_delivery"] = body.expected_delivery
     await _db.purchase_orders.update_one({"id": poid}, {"$set": update})
     await _log_audit(user, "po.edit", "purchase_order", poid,
                      before={"vendor": po.get("vendor_name"), "total": po.get("total_amount")},
@@ -876,7 +887,7 @@ def _render_po_pdf(po: dict, vendor: dict) -> bytes:
     label = ParagraphStyle("Lbl", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6b7280"))
     elements = []
 
-    elements.append(Paragraph("<b>Servall Nexus</b>", h1))
+    elements.append(Paragraph("<b>Servall</b>", h1))
     elements.append(Paragraph("Purchase Order", styles["Heading3"]))
     elements.append(Spacer(1, 10))
     meta = [
@@ -939,7 +950,7 @@ def _render_po_pdf(po: dict, vendor: dict) -> bytes:
         elements.append(Spacer(1, 8))
 
     elements.append(Spacer(1, 30))
-    elements.append(Paragraph("Authorized Signatory — Servall Nexus", small))
+    elements.append(Paragraph("Authorized Signatory — Servall", small))
 
     doc.build(elements)
     return buf.getvalue()

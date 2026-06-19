@@ -1,4 +1,4 @@
-"""Auth utilities for Servall Nexus ERP - JWT + bcrypt."""
+"""Auth utilities for Servall ERP - JWT + bcrypt."""
 import os
 import jwt
 import bcrypt
