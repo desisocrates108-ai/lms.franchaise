@@ -119,6 +119,24 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - **Global Axios error handling** with toast surfacing (401 → logout, 403/404/500/network errors).
 - **ErrorBoundary** wired at App root + per-route. Prevents blank screens on render crashes; provides Reload + Try-again.
 - **Removed dead nav** for Credit/Debit Notes (will be added in Phase 5).
-- Tests: 134/134 backend pytest passing. Franchise role enforcement, PO date persistence, and login flow verified via Playwright + curl.
-- Local commit: `6ab7bb1` (after prior auto-commit `f5de7a7`).
+- Tests: 134/134 backend pytest passing.
+- Local commit: `6ab7bb1`.
+
+### v2.4 — Phases 3-8 Completion (Feb 2026)
+- **Phase 3 — Field Relaxation** (already inherited from prior work): `POST /api/indents` only requires `franchise_id` + `line_items[].requested_qty`; `POST /api/indents/{id}/dispatch` only requires `transporter_name` (vehicle, LR, eway optional). Validated end-to-end.
+- **Phase 4 — Tax Invoice**: `invoice_number` is now editable on the detail page (`data-testid=invoice_number`) with backend uniqueness enforcement (409 Conflict on duplicate). PDF banner refreshed (red title strip + inter/intra-state subtitle).
+- **Phase 5 — Delivery Challan PDF**: now embeds `indent_number` reference in header; new `DeliveryChallan.indent_number` field persisted on dispatch.
+- **Phases 6 & 7 — Returns Engine (Credit + Debit Notes)** (foundation pre-existed, completed and hardened):
+  - End-to-end UI flows: list pages, create modal (Against Tax Invoice / Against PO / Manual), detail editor, Issue & Restock, Cancel & Reverse, PDF download.
+  - Default numbering: `CN-YYYY-XXXX` / `DN-YYYY-XXXX`.
+  - Inventory auto-update: CN issue → hub_stock +qty; cancel → -qty. DN issue → -qty; cancel → +qty. All write to canonical `location_id='hub-main'` (was previously a phantom-row bug — fixed).
+  - Audit logs `credit_note.issue/cancel/update` and `debit_note.*` generated automatically.
+  - Role guard: warehouse_manager can now issue + cancel Debit Notes (parity with create/edit/PDF access).
+- **Phase 8 — Hardening**:
+  - Critical inventory bug fixed: `routers_returns.py` was using `location_id='hub'` while the rest of the system uses `'hub-main'`. All 4 `_adjust_stock` callsites + role guards now consistent.
+  - One-time migration script: `/app/backend/scripts/migrate_phantom_hub_stock.py` (idempotent, merges phantom rows into canonical).
+  - Restored missing `/app/backend/.env` + `/app/frontend/.env` (preview env was scrubbed of envs at fork-start).
+- Test coverage: **156/156 backend pytest passing** (was 134 before this work). New suites: `test_v23_returns.py` (8), `test_v22_phase23.py` (24+), `test_v23_phases3to8.py` (11), `test_iter7_warehouse_dn_and_stock.py` (3).
+- Final commit: `26ecba6`.
+
 
