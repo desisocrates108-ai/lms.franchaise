@@ -525,7 +525,7 @@ async def update_debit_note(dnid: str, body: DebitNoteIn, request: Request,
 
 @router.post("/debit-notes/{dnid}/issue", tags=["returns"])
 async def issue_debit_note(dnid: str, request: Request,
-                            user: dict = Depends(require_roles("super_admin", "hub_accountant"))):
+                            user: dict = Depends(require_roles("super_admin", "hub_accountant", "warehouse_manager"))):
     doc = await _db.debit_notes.find_one({"id": dnid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Not found")
@@ -548,7 +548,7 @@ async def issue_debit_note(dnid: str, request: Request,
         qty = float(li.get("qty") or 0)
         if pid and qty > 0:
             try:
-                await _adjust_stock(pid, -qty, "hub", "hub", "debit_note", dnid, user)
+                await _adjust_stock(pid, -qty, "hub", "hub-main", "debit_note", dnid, user)
             except Exception as e:
                 logger.warning(f"debit_note destock failed for {pid}: {e}")
 
