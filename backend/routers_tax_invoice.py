@@ -49,12 +49,19 @@ def init(db, log_audit_fn):
 
 # ---------------- Helpers ----------------
 async def get_org_settings_doc() -> dict:
-    """Return org settings, seeding defaults if missing."""
+    """Return org settings, seeding defaults if missing. Also backfills any
+    newly-added fields (e.g. credit_note_prefix / debit_note_prefix) onto
+    existing records so older deployments transparently get the new defaults."""
     doc = await _db.org_settings.find_one({"id": "org-settings"}, {"_id": 0})
     if not doc:
         defaults = OrganizationSettings().model_dump()
         await _db.org_settings.insert_one(defaults)
-        doc = defaults
+        return defaults
+    defaults = OrganizationSettings().model_dump()
+    missing = {k: v for k, v in defaults.items() if k not in doc}
+    if missing:
+        await _db.org_settings.update_one({"id": "org-settings"}, {"$set": missing})
+        doc.update(missing)
     return doc
 
 
@@ -213,6 +220,10 @@ class OrgSettingsIn(BaseModel):
     bank_branch: Optional[str] = None
     invoice_prefix: Optional[str] = None
     invoice_pad: Optional[int] = None
+    credit_note_prefix: Optional[str] = None
+    credit_note_pad: Optional[int] = None
+    debit_note_prefix: Optional[str] = None
+    debit_note_pad: Optional[int] = None
     default_terms: Optional[str] = None
     logo_url: Optional[str] = None
     signature_url: Optional[str] = None
@@ -912,6 +923,53 @@ def _render_tax_invoice_pdf(inv: dict, org: dict) -> bytes:
     if inv.get("notes"):
         elements.append(Spacer(1, 4))
         elements.append(Paragraph(f"<b>Notes:</b> {inv.get('notes','')}", small))
+
+    # ---- Page 2: ACKNOWLEDGEMENT COPY ----
+    from reportlab.platypus import PageBreak
+    elements.append(PageBreak())
+    ack_banner_style = ParagraphStyle("ack", parent=styles["Normal"], fontSize=18, leading=22,
+                                       alignment=1, textColor=colors.white,
+                                       backColor=colors.HexColor("#7a1f1f"),
+                                       spaceBefore=4, spaceAfter=6)
+    elements.append(Paragraph("<b>ACKNOWLEDGEMENT</b>", ack_banner_style))
+    elements.append(Spacer(1, 6))
+
+    ack_left = [
+        Paragraph("<b>Invoice To</b>", label),
+        Paragraph(f"<b>{inv.get('billing_name','')}</b>", h_style),
+        Paragraph(inv.get("billing_address", ""), h_style),
+        Paragraph(f"GSTIN: <b>{inv.get('billing_gstin','—')}</b>", h_style),
+    ]
+    ack_right = [
+        Paragraph("<b>Invoice Details</b>", label),
+        Paragraph(f"Invoice No.: <b>{inv.get('invoice_number') or 'DRAFT'}</b>", h_style),
+        Paragraph(f"Invoice Date: <b>{inv.get('invoice_date','')}</b>", h_style),
+        Paragraph(f"Invoice Amount: <b>₹ {inv.get('grand_total', 0):.2f}</b>", h_style),
+        Spacer(1, 6),
+        Paragraph("<b>Seller</b>", label),
+        Paragraph(f"<b>{org.get('legal_name','')}</b>", h_style),
+        Paragraph(f"GSTIN: {org.get('gstin','')}", h_style),
+        Paragraph(f"State: {org.get('state','')}", h_style),
+    ]
+    ack_tbl = Table([[ack_left, ack_right]], colWidths=[94 * mm, 94 * mm])
+    ack_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#DDDDDD")),
+        ("LINEAFTER", (0, 0), (0, -1), 0.4, colors.HexColor("#DDDDDD")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(ack_tbl)
+    elements.append(Spacer(1, 40))
+
+    rec_block = [
+        Spacer(1, 60),
+        Paragraph("<para align='right'><b>Receiver's Seal &amp; Sign</b></para>", h_style),
+        Paragraph("<para align='right'>____________________________</para>", small),
+    ]
+    elements.extend(rec_block)
 
     doc.build(elements)
     return buf.getvalue()

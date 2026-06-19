@@ -587,14 +587,20 @@ export default function Indents() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div><Label>Transporter Name</Label><Input value={dispatchData.transporter_name} onChange={(e) => setDispatchData({ ...dispatchData, transporter_name: e.target.value })} data-testid="transporter-input" /></div>
-            <div><Label>Vehicle Number</Label><Input value={dispatchData.vehicle_number} onChange={(e) => setDispatchData({ ...dispatchData, vehicle_number: e.target.value })} placeholder="MH-12-AB-1234" /></div>
-            <div><Label>LR Number</Label><Input value={dispatchData.lr_number} onChange={(e) => setDispatchData({ ...dispatchData, lr_number: e.target.value })} /></div>
-            <div><Label>E-Way Bill #</Label><Input value={dispatchData.eway_bill_number} onChange={(e) => setDispatchData({ ...dispatchData, eway_bill_number: e.target.value })} /></div>
+            <div className="text-xs text-muted-foreground -mt-1">
+              <span className="text-rose-600">*</span> Transporter Name is required. All other fields are optional.
+            </div>
+            <div>
+              <Label>Transporter Name <span className="text-rose-600">*</span></Label>
+              <Input value={dispatchData.transporter_name} onChange={(e) => setDispatchData({ ...dispatchData, transporter_name: e.target.value })} data-testid="transporter-input" required placeholder="e.g. Blue Dart, VRL Logistics" />
+            </div>
+            <div><Label>Vehicle Number <span className="text-muted-foreground text-[10px]">(optional)</span></Label><Input value={dispatchData.vehicle_number} onChange={(e) => setDispatchData({ ...dispatchData, vehicle_number: e.target.value })} placeholder="MH-12-AB-1234" /></div>
+            <div><Label>LR Number <span className="text-muted-foreground text-[10px]">(optional)</span></Label><Input value={dispatchData.lr_number} onChange={(e) => setDispatchData({ ...dispatchData, lr_number: e.target.value })} /></div>
+            <div><Label>E-Way Bill # <span className="text-muted-foreground text-[10px]">(optional)</span></Label><Input value={dispatchData.eway_bill_number} onChange={(e) => setDispatchData({ ...dispatchData, eway_bill_number: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDispatchFor(null)}>Cancel</Button>
-            <Button onClick={dispatch} data-testid="confirm-dispatch-btn"><Truck size={14} className="mr-1" />Dispatch</Button>
+            <Button onClick={dispatch} disabled={!dispatchData.transporter_name?.trim()} data-testid="confirm-dispatch-btn"><Truck size={14} className="mr-1" />Dispatch</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

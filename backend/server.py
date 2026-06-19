@@ -969,12 +969,14 @@ async def pending_stock_summary(user: dict = Depends(require_roles("super_admin"
 @api.post("/indents/{iid}/dispatch")
 async def dispatch_indent(
     iid: str, request: Request,
-    transporter_name: str = Form(""),
+    transporter_name: str = Form(...),
     vehicle_number: str = Form(""),
     lr_number: str = Form(""),
     eway_bill_number: str = Form(""),
     user: dict = Depends(require_roles("super_admin", "warehouse_manager")),
 ):
+    if not transporter_name.strip():
+        raise HTTPException(400, "Transporter name is required")
     indent = await db.indents.find_one({"id": iid}, {"_id": 0})
     if not indent:
         raise HTTPException(404, "Not found")
@@ -1375,6 +1377,29 @@ app.include_router(routers_v22.router, prefix="/api")
 import routers_tax_invoice  # noqa: E402
 routers_tax_invoice.init(db=db, log_audit_fn=log_audit)
 app.include_router(routers_tax_invoice.router, prefix="/api")
+
+# v2.3 — Returns Engine (Credit + Debit Notes)
+import routers_returns  # noqa: E402
+
+
+async def _returns_adjust_stock(product_id: str, qty_delta: float, location_type: str,
+                                  location_id: str, ref_type: str, ref_id: str, user: dict):
+    """Adapter so the shared returns engine can call the central adjust_stock helper."""
+    return await adjust_stock(
+        product_id=product_id,
+        location_type=location_type,
+        location_id=location_id,
+        delta=int(qty_delta),
+        reason=ref_type,
+        user_id=(user or {}).get("id", ""),
+        user_email=(user or {}).get("email", ""),
+        reference_type=ref_type,
+        reference_id=ref_id,
+    )
+
+
+routers_returns.init(db=db, log_audit_fn=log_audit, adjust_stock_fn=_returns_adjust_stock)
+app.include_router(routers_returns.router, prefix="/api")
 
 # Serve uploaded files
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

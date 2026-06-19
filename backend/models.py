@@ -428,6 +428,10 @@ class OrganizationSettings(BaseModel):
     bank_branch: str = ""
     invoice_prefix: str = "TI/2026-27/"    # tax invoice prefix
     invoice_pad: int = 4
+    credit_note_prefix: str = "CN-2026-"    # credit note prefix (franchise returns)
+    credit_note_pad: int = 4
+    debit_note_prefix: str = "DN-2026-"     # debit note prefix (vendor returns)
+    debit_note_pad: int = 4
     default_terms: str = "1. Goods once sold will not be taken back.\n2. Payment due within 30 days.\n3. Interest @ 18% p.a. on overdue invoices.\n4. Subject to local jurisdiction only."
     logo_url: str = ""
     signature_url: str = ""
@@ -512,3 +516,125 @@ class TaxInvoice(BaseModel):
     cancelled_at: Optional[str] = None
     cancelled_reason: str = ""
     paid_at: Optional[str] = None
+
+
+
+# ============ RETURNS — CREDIT NOTES (Franchise returns) ============
+class ReturnLineItem(BaseModel):
+    """Shared line item for Credit & Debit notes."""
+    model_config = ConfigDict(extra="ignore")
+    product_id: Optional[str] = None
+    sku: str = ""
+    description: str = ""
+    hsn: str = ""
+    qty: float = 1.0
+    unit: str = "PCS"
+    unit_price: float = 0.0
+    discount_percent: float = 0.0
+    taxable_value: float = 0.0
+    gst_percent: float = 18.0
+    cgst_amount: float = 0.0
+    sgst_amount: float = 0.0
+    igst_amount: float = 0.0
+    line_total: float = 0.0
+    reason: str = ""  # damaged / wrong_item / excess / quality / other
+
+
+ReturnStatus = Literal["draft", "issued", "cancelled"]
+
+
+class CreditNote(BaseModel):
+    """Credit Note — issued when a franchise returns products.
+    On 'issue': hub stock is incremented (goods come back to hub) and an audit log + stock movements are written."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    cn_number: str = ""                # assigned on issue
+    cn_date: str = Field(default_factory=lambda: now_iso()[:10])
+    status: ReturnStatus = "draft"
+
+    # Source linkage — both modes supported
+    source_type: Literal["invoice", "manual"] = "manual"
+    tax_invoice_id: Optional[str] = None
+    tax_invoice_number: Optional[str] = None
+
+    # Franchise (customer who is returning)
+    franchise_id: Optional[str] = None
+    franchise_code: str = ""
+    franchise_name: str = ""
+    billing_address: str = ""
+    billing_gstin: str = ""
+    billing_state: str = ""
+    billing_state_code: str = ""
+
+    # Place of supply
+    place_of_supply: str = ""
+    is_inter_state: bool = False
+
+    # Items + totals
+    line_items: List[ReturnLineItem] = []
+    subtotal: float = 0.0
+    total_discount: float = 0.0
+    cgst_total: float = 0.0
+    sgst_total: float = 0.0
+    igst_total: float = 0.0
+    round_off: float = 0.0
+    grand_total: float = 0.0
+    amount_in_words: str = ""
+
+    # Reason / notes
+    reason: str = ""                   # overall reason
+    notes: str = ""
+
+    # Audit
+    created_by: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    issued_at: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    cancelled_reason: str = ""
+
+
+# ============ RETURNS — DEBIT NOTES (Vendor returns) ============
+class DebitNote(BaseModel):
+    """Debit Note — issued when we return products to a vendor.
+    On 'issue': hub stock is decremented (goods leave hub) and an audit log + stock movements are written."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    dn_number: str = ""
+    dn_date: str = Field(default_factory=lambda: now_iso()[:10])
+    status: ReturnStatus = "draft"
+
+    # Source linkage
+    source_type: Literal["purchase_order", "manual"] = "manual"
+    po_id: Optional[str] = None
+    po_number: Optional[str] = None
+
+    # Vendor (supplier receiving the return)
+    vendor_id: Optional[str] = None
+    vendor_name: str = ""
+    vendor_gstin: str = ""
+    vendor_address: str = ""
+    vendor_state: str = ""
+
+    # Place of supply
+    place_of_supply: str = ""
+    is_inter_state: bool = False
+
+    # Items + totals
+    line_items: List[ReturnLineItem] = []
+    subtotal: float = 0.0
+    total_discount: float = 0.0
+    cgst_total: float = 0.0
+    sgst_total: float = 0.0
+    igst_total: float = 0.0
+    round_off: float = 0.0
+    grand_total: float = 0.0
+    amount_in_words: str = ""
+
+    reason: str = ""
+    notes: str = ""
+
+    created_by: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    issued_at: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    cancelled_reason: str = ""

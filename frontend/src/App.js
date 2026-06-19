@@ -25,6 +25,10 @@ import Reports from "@/pages/Reports";
 import OrgSettings from "@/pages/OrgSettings";
 import TaxInvoices from "@/pages/TaxInvoices";
 import TaxInvoiceDetail from "@/pages/TaxInvoiceDetail";
+import CreditNotes from "@/pages/CreditNotes";
+import CreditNoteDetail from "@/pages/CreditNoteDetail";
+import DebitNotes from "@/pages/DebitNotes";
+import DebitNoteDetail from "@/pages/DebitNoteDetail";
 import "@/App.css";
 
 function RequireAuth({ children }) {
@@ -61,6 +65,10 @@ function App() {
               <Route path="/tax-invoices" element={<RequireAuth><TaxInvoices /></RequireAuth>} />
               <Route path="/tax-invoices/new" element={<RequireAuth><TaxInvoiceDetail /></RequireAuth>} />
               <Route path="/tax-invoices/:id" element={<RequireAuth><TaxInvoiceDetail /></RequireAuth>} />
+              <Route path="/credit-notes" element={<RequireAuth><CreditNotes /></RequireAuth>} />
+              <Route path="/credit-notes/:id" element={<RequireAuth><CreditNoteDetail /></RequireAuth>} />
+              <Route path="/debit-notes" element={<RequireAuth><DebitNotes /></RequireAuth>} />
+              <Route path="/debit-notes/:id" element={<RequireAuth><DebitNoteDetail /></RequireAuth>} />
               <Route path="/settings/org" element={<RequireAuth><OrgSettings /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
