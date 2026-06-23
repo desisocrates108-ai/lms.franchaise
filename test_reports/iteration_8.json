@@ -1,0 +1,40 @@
+{
+  "summary": "V2.5 OCR.Space hybrid migration verified end-to-end. Backend: 159/159 tests pass including 3 existing test_v25_ocr_space.py + 5 new test_v25_iter8_review.py covering hybrid non-zero confidences, blank-image graceful fallback, GET round-trip of new fields, <30s perf budget, and alias-learning-on-commit regression. Live env-switch verified: with OCR_PROVIDER=gemini in /app/backend/.env, upload returns ocr_provider='gemini', effective='gemini', ocr_space_confidence=0 (restored to hybrid afterwards). Frontend: admin login → /stock-entry upload of synthetic GST invoice renders the new 4-chip cluster + provider badge in the reconciliation header: Combined 90%, OCR.Space 85%, LLM 95%, Heuristic 85%, badge='OCR.Space + Gemini', effective_provider='ocr_space'. All five data-testids (ocr-provider-badge, ocr-effective-provider, ocr-confidence, ocr-confidence-llm, ocr-confidence-heuristic, ocr-confidence-ocrspace) present in DOM with correct values. Regression: existing alias learning, commit-to-stock, and recent-invoices listing all still working.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v25_ocr_space.py",
+    "/app/backend/tests/test_v25_iter8_review.py",
+    "/app/test_reports/pytest/iter8_ocr_space.xml",
+    "/app/test_reports/pytest/iter8_review.xml",
+    "/app/test_reports/pytest/iter8_full.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ocr_service.py L460 — sanity gate requires >=20 words in OCR.Space output before normalizing. For very short but valid invoices (e.g. single-row dispatch notes) this will silently fall back to direct Gemini even when OCR.Space succeeded. Consider making the threshold configurable via env (e.g. OCR_SPACE_MIN_WORDS) so future tuning doesn't need code changes.",
+    "ocr_service.py L380-383 — when OCR.Space is in pipeline, combined score uses fixed weights 0.5/0.3/0.2 ignoring OCR_CONFIDENCE_LLM_WEIGHT. Either document this override or fold the OCR.Space weight into env as well for consistency.",
+    "server.py L443-554 — invoice upload is single large async handler (~110 lines). The product-matching block (L456-522) duplicates lookup logic that exists in routers_v21.lookup_alias; extracting to ocr_matching.match_line_item() would improve testability and let unit tests cover alias/sku/name precedence without spinning a full OCR call.",
+    "ocr_service.py: '_build_response' returns 'provider' and 'effective_provider' keys while server.py persists them as 'ocr_provider' / 'ocr_effective_provider'. The mapping is one-shot at server.py:549-550 — a stray rename in either file will silently break the new badge. A typed return model (dataclass / Pydantic) would prevent drift.",
+    "StockEntry.jsx — the 4 confidence chips are inside Badge spans; Playwright reports them 'hidden' for visibility-based selectors (works via attached state). Suggest wrapping each chip in a parent div with role='status' or moving data-testid onto the visible Badge wrapper for testability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v25_iter8_review.py"
+  ],
+  "success_rate": {
+    "backend": "159/159 (100%) — includes 3 existing v25 + 5 new iter8 review tests",
+    "frontend": "100% — login, /stock-entry navigation, invoice upload, 4 chips + badge render with correct OCR.Space/LLM/Heuristic/Combined values"
+  },
+  "test_credentials": "admin@servall.com / Admin@123 (used live for both pytest and Playwright)",
+  "seed_data_creation": "Created several draft PurchaseInvoice rows via upload + 1 committed invoice via commit-with-alias regression test. All TEST_/INV-* prefixed. No seed/production data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Full backend regression now 159/159 with 5 new test_v25_iter8_review.py tests. OCR.Space hybrid live keys K82792412088957 are still under free-tier rate limits — if many uploads run in quick succession, effective_provider may flip to 'hybrid_fallback_gemini' (designed behavior). To switch providers for testing: edit /app/backend/.env OCR_PROVIDER value, restart backend, then restore. Frontend chips are inside Badge<span> wrappers — selectors must use state='attached' or page.evaluate textContent (visibility-based wait_for_selector returns 'hidden').",
+  "rca of the issue": "No regression found. Two minor false-positives during testing: (a) StockEntry.jsx file-input has class='hidden' which made wait_for_selector default visible=true time out — resolved by calling set_input_files directly on the attached selector; (b) chip <span> elements inside Badge wrappers are flagged 'hidden' by Playwright's visibility heuristics even though they render visibly — resolved via page.evaluate(textContent). Both are test-script issues, not product bugs; documented in critical_code_review_comments for the main agent to optionally improve testability."
+}
