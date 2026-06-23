@@ -122,6 +122,20 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - Tests: 134/134 backend pytest passing.
 - Local commit: `6ab7bb1`.
 
+### v2.6 — Production Hardening: Saurashtra Bug + Optional LLM Key (Feb 2026)
+- **Critical bug fix (production blocker)**: Mongo `$regex` query in product fuzzy-match used unescaped OCR text → any vendor description with `(`, `)`, `|`, `*`, `+` (very common in automotive parts names) crashed the upload with a 502. Now uses `re.escape()` before the query.
+- **OCR.Space partial-success handling**: free tier has a 3-page limit and flags `IsErroredOnProcessing=true` even when it returns extracted text for the first N pages. Client now treats this as a soft warning + uses the partial text (confidence 0.70). Verified live with the user's 5-page Saurashtra Sales Agency PDF — extracted 53 line items, 86% combined confidence.
+- **`EMERGENT_LLM_KEY` is now OPTIONAL** for the OCR upload endpoint:
+  - `OCR_PROVIDER=gemini` + no key → graceful empty envelope with clear error (no crash)
+  - `OCR_PROVIDER=ocr_space` + no key → OCR.Space text + new regex-only normalizer (`effective_provider=ocr_space_regex`)
+  - `OCR_PROVIDER=hybrid` + no key → same as `ocr_space` (no Gemini fallback)
+- **New regex normalizer** (`_regex_normalize_text`): extracts vendor, invoice#, date (multi-format), CGST/SGST/IGST, totals, table rows. Best-effort, surfaced as confidence 0.55. Lets the OCR endpoint work fully without any LLM dependency.
+- **Gemini-normalize hard timeout** (`OCR_GEMINI_NORMALIZE_TIMEOUT=55s` default): prevents large multi-page invoices from hitting the ingress 60s gateway timeout. On timeout, falls back to regex on the OCR.Space text we already have (`effective_provider=ocr_space_regex_timeout`).
+- **Startup logs**: OCR provider config + actionable warnings for missing keys.
+- **Frontend**: upload toast now reports HTTP status (502/504 explicitly flagged as "OCR took too long, retry in a moment"); provider badge supports new effective providers ("OCR.Space", "OCR.Space (LLM timeout)", "OCR.Space (low-conf)").
+- **Live test**: User's Saurashtra PDF (5 pages, 94 rows) → HTTP 200 in 60s, 53 line items extracted, vendor / invoice# / date / total all correct, no error popup, success toast.
+- **Regression**: 164/164 backend pytest passing.
+
 ### v2.5 — OCR.Space Hybrid Engine (Feb 2026)
 - **New `OCR_PROVIDER` modes**: `gemini` (legacy, default-safe), `ocr_space` (OCR.Space text → Gemini normalize → V2.2 JSON), `hybrid` (OCR.Space first; fallback to direct Gemini if low-confidence/empty). Configurable in `backend/.env` — no code changes to switch.
 - **OCR.Space client**: `/app/backend/ocr_providers/ocr_space.py` — async httpx client, table-aware engine 2, configurable timeout (`OCR_SPACE_TIMEOUT_SECONDS=12`), min-confidence threshold (`OCR_SPACE_MIN_CONFIDENCE=0.45`).
