@@ -122,6 +122,23 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - Tests: 134/134 backend pytest passing.
 - Local commit: `6ab7bb1`.
 
+### v2.5 — OCR.Space Hybrid Engine (Feb 2026)
+- **New `OCR_PROVIDER` modes**: `gemini` (legacy, default-safe), `ocr_space` (OCR.Space text → Gemini normalize → V2.2 JSON), `hybrid` (OCR.Space first; fallback to direct Gemini if low-confidence/empty). Configurable in `backend/.env` — no code changes to switch.
+- **OCR.Space client**: `/app/backend/ocr_providers/ocr_space.py` — async httpx client, table-aware engine 2, configurable timeout (`OCR_SPACE_TIMEOUT_SECONDS=12`), min-confidence threshold (`OCR_SPACE_MIN_CONFIDENCE=0.45`).
+- **Per-invoice persistence**: `PurchaseInvoice` now stores `ocr_space_confidence`, `ocr_effective_provider` (gemini / ocr_space / hybrid_fallback_gemini / gemini_fallback), full `raw_ocr_text` (was previously truncated to 500 chars).
+- **API contract**: `POST /api/invoices/upload` now returns `ocr_space_confidence`, `ocr_effective_provider`, `ocr_raw_text_preview` alongside existing fields. Fully backward compatible.
+- **UI**: Stock Entry page now shows 4-chip cluster (Combined / OCR.Space / LLM / Heuristic), effective-provider badge ("OCR.Space + Gemini", "Gemini", "Hybrid → Gemini fallback"), updated subtitle and powered-by line.
+- **Combined confidence formula** (with OCR.Space): `0.5×LLM + 0.3×heuristic + 0.2×ocr_space`. Without OCR.Space: legacy weighted formula unchanged.
+- **Regression**: 159/159 backend pytest passing (was 156; +3 in `tests/test_v25_ocr_space.py` running the live `/api/invoices/upload` endpoint against a synthetic GST invoice). Verified end-to-end: OCR.Space conf 0.85 → Gemini normalize → 3-item JSON → combined 0.925.
+- **Env contract** (added to `backend/.env`):
+  ```
+  OCR_PROVIDER=hybrid
+  OCR_SPACE_API_KEY=...           # K82792412088957 in this fork
+  OCR_SPACE_ENDPOINT=https://api.ocr.space/parse/image
+  OCR_SPACE_TIMEOUT_SECONDS=12
+  OCR_SPACE_MIN_CONFIDENCE=0.45
+  ```
+
 ### v2.4 — Phases 3-8 Completion (Feb 2026)
 - **Phase 3 — Field Relaxation** (already inherited from prior work): `POST /api/indents` only requires `franchise_id` + `line_items[].requested_qty`; `POST /api/indents/{id}/dispatch` only requires `transporter_name` (vehicle, LR, eway optional). Validated end-to-end.
 - **Phase 4 — Tax Invoice**: `invoice_number` is now editable on the detail page (`data-testid=invoice_number`) with backend uniqueness enforcement (409 Conflict on duplicate). PDF banner refreshed (red title strip + inter/intra-state subtitle).

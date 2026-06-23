@@ -541,11 +541,13 @@ async def upload_invoice(
         line_items=[InvoiceLineItem(**li) for li in line_items],
         file_url=public_url,
         status="draft",
-        raw_ocr_text=parsed.get("_raw", "")[:500],
+        raw_ocr_text=parsed.get("ocr_raw_text") or parsed.get("_raw", "") or "",
         confidence_score=float(parsed.get("confidence_score", 0) or 0),
         llm_confidence=float(parsed.get("llm_confidence", 0) or 0),
         heuristic_confidence=float(parsed.get("heuristic_confidence", 0) or 0),
+        ocr_space_confidence=float(parsed.get("ocr_space_confidence", 0) or 0),
         ocr_provider=parsed.get("provider", ""),
+        ocr_effective_provider=parsed.get("effective_provider", "") or parsed.get("provider", ""),
         ocr_model=parsed.get("model", ""),
         created_by=user["id"],
     )
@@ -568,8 +570,11 @@ async def upload_invoice(
         "confidence_score": invoice.confidence_score,
         "llm_confidence": invoice.llm_confidence,
         "heuristic_confidence": invoice.heuristic_confidence,
+        "ocr_space_confidence": invoice.ocr_space_confidence,
         "ocr_provider": invoice.ocr_provider,
+        "ocr_effective_provider": invoice.ocr_effective_provider,
         "ocr_model": invoice.ocr_model,
+        "ocr_raw_text_preview": (invoice.raw_ocr_text or "")[:400],
         "error": parsed.get("_error"),
     }
 

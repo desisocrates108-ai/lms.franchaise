@@ -1,11 +1,16 @@
-"""V2.2 — Provider-configurable OCR service with dual-confidence scoring.
+"""V2.2 + V2.5 — Provider-configurable OCR service with dual-confidence scoring
+and OCR.Space + Gemini hybrid pipeline.
 
-Default: Gemini 3 Flash (env OCR_MODEL).
-Outputs structured JSON in V2.2 schema (vendor + items + per-row validation flags
-+ per-row LLM self-reported confidence + heuristic confidence + combined).
+Modes (env `OCR_PROVIDER`):
+  - "gemini"     → Gemini multimodal direct on the file (legacy, default-safe)
+  - "ocr_space"  → OCR.Space extracts text → Gemini normalizes to V2.2 JSON
+                   (falls back to direct Gemini if OCR.Space fails)
+  - "hybrid"     → try OCR.Space first; if its provider confidence < threshold OR
+                   the Gemini-normalized JSON is empty/low-quality → fall back to
+                   direct Gemini multimodal. Surface both confidences.
 
-Backward compatible: also emits legacy keys (line_items, gst_percent, line_total)
-so existing /invoices/upload code in server.py keeps working without changes.
+Outputs always include legacy keys (line_items, gst_percent, line_total) so the
+existing /invoices/upload code in server.py keeps working without changes.
 """
 from __future__ import annotations
 import os
@@ -15,20 +20,32 @@ import re
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContentWithMimeType
+from ocr_providers.ocr_space import parse_with_ocr_space, OcrSpaceError
 
 logger = logging.getLogger(__name__)
 
 # ---------- Provider configuration ----------
-DEFAULT_PROVIDER = "gemini"
+DEFAULT_PROVIDER = "gemini"          # safe default if env missing
 DEFAULT_MODEL = "gemini-3-flash-preview"
 DEFAULT_LLM_WEIGHT = 0.6  # combined = w*llm + (1-w)*heuristic
+ALLOWED_PROVIDERS = {"gemini", "ocr_space", "hybrid"}
 
 
 def _get_provider_model() -> tuple[str, str]:
+    provider = os.environ.get("OCR_PROVIDER", DEFAULT_PROVIDER).strip().lower() or DEFAULT_PROVIDER
+    if provider not in ALLOWED_PROVIDERS:
+        provider = DEFAULT_PROVIDER
     return (
-        os.environ.get("OCR_PROVIDER", DEFAULT_PROVIDER).strip().lower() or DEFAULT_PROVIDER,
+        provider,
         os.environ.get("OCR_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
     )
+
+
+def _ocr_space_min_confidence() -> float:
+    try:
+        return float(os.environ.get("OCR_SPACE_MIN_CONFIDENCE", "0.45"))
+    except ValueError:
+        return 0.45
 
 
 def _get_llm_weight() -> float:
@@ -104,6 +121,51 @@ Rules:
 Return the JSON object ONLY."""
 
 
+# V2.5 — text-only normalizer used when OCR.Space has already extracted the raw text.
+# This is cheaper, faster, and lets us preserve OCR.Space's table-aware layout.
+INVOICE_NORMALIZE_PROMPT = """You are an expert at normalizing OCR text extracted from Indian B2B tax/purchase invoices
+for automotive spare parts. The text below was extracted by a third-party OCR engine — it may contain
+column-misaligned rows, repeated spaces, broken lines, or stray header artefacts.
+
+Return ONLY valid JSON in this exact schema (no prose, no markdown fences):
+{
+  "vendor_name": string,
+  "invoice_number": string,
+  "invoice_date": "YYYY-MM-DD",
+  "total_amount": number,
+  "cgst": number,
+  "sgst": number,
+  "igst": number,
+  "overall_confidence": number,           // 0..1 your assessment of the OCR text quality
+  "items": [
+    {
+      "description": string,
+      "item_alias": string,                 // vendor's short item code if shown; else ""
+      "hsn": string,                        // 4-8 digit HSN; else ""
+      "qty": number,
+      "unit": string,                       // PCS / BOX / SET / LTR etc.
+      "price": number,
+      "cgst_percent": number,
+      "sgst_percent": number,
+      "net_amount": number,
+      "confidence": number                  // 0..1 for THIS row
+    }
+  ]
+}
+
+NORMALIZATION RULES:
+1. The OCR text comes from a table — reconstruct columns by horizontal alignment when possible.
+2. Item Name / Item Code / HSN / Qty / Rate / GST / Amount are the typical columns.
+3. Preserve description verbatim. Do not invent HSN/SKU values that aren't in the text.
+4. Numbers must be plain JSON (no commas, no ₹). Use 0 if not present.
+5. Skip header rows ("S.No", "Item", "HSN"), terms-and-conditions, and signature lines.
+6. If a row's qty cannot be parsed cleanly, return 0 (not null) and set its confidence to <= 0.5.
+7. confidence per row: 1.0 = clean alignment + all fields present; 0.7 = one ambiguous field; 0.4 = column drift; 0.2 = mostly missing.
+8. overall_confidence should reflect your certainty on header (vendor, number, date, totals).
+
+Return the JSON object ONLY."""
+
+
 # ---------- Helpers ----------
 def _clean_json_text(text: str) -> str:
     """Strip markdown fences and pre/post junk, return raw JSON string."""
@@ -120,15 +182,18 @@ def _clean_json_text(text: str) -> str:
 
 
 def _build_chat(session_id: str, system_message: str) -> LlmChat:
+    """Build a Gemini chat session. The OCR_PROVIDER env decides the orchestration
+    (ocr_space/gemini/hybrid) but the LLM itself is always Gemini for the
+    normalization / structured-extraction step."""
     api_key = os.environ.get("EMERGENT_LLM_KEY")
     if not api_key:
         raise RuntimeError("EMERGENT_LLM_KEY not configured in backend/.env")
-    provider, model = _get_provider_model()
+    model = os.environ.get("OCR_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     return LlmChat(
         api_key=api_key,
         session_id=session_id,
         system_message=system_message,
-    ).with_model(provider, model)
+    ).with_model("gemini", model)
 
 
 def _clip01(x) -> float:
@@ -244,46 +309,55 @@ def _to_legacy_line_item(item: dict) -> dict:
     }
 
 
-# ---------- Public API ----------
-async def parse_invoice(file_path: str, mime_type: str) -> dict:
-    """Run multimodal OCR on a vendor invoice. Returns a dict combining V2.2 + legacy keys.
+# ---------- Internal: Gemini direct multimodal extraction ----------
+async def _gemini_direct(file_path: str, mime_type: str, model: str) -> dict:
+    """Run Gemini multimodal directly on the file. Returns the parsed JSON dict
+    or raises an exception."""
+    chat = _build_chat(f"invoice-ocr-{os.path.basename(file_path)}", INVOICE_PROMPT)
+    attachment = FileContentWithMimeType(file_path=file_path, mime_type=mime_type)
+    msg = UserMessage(
+        text="Parse this invoice and return the JSON exactly as specified, including per-row confidence.",
+        file_contents=[attachment],
+    )
+    response = await chat.send_message(msg)
+    text = response if isinstance(response, str) else str(response)
+    cleaned = _clean_json_text(text)
+    return json.loads(cleaned), cleaned
 
-    Output keys (used by server.py):
-      vendor_name, invoice_number, invoice_date, total_amount, cgst, sgst, igst,
-      items[]            (V2.2 — with confidence split)
-      line_items[]       (legacy — auto-generated for back-compat)
-      confidence_score   (avg combined)
-      llm_confidence     (avg LLM self-reported)
-      heuristic_confidence (avg heuristic)
-      provider, model
-      _raw, _error (optional)
-    """
-    provider, model = _get_provider_model()
-    try:
-        chat = _build_chat(f"invoice-ocr-{os.path.basename(file_path)}", INVOICE_PROMPT)
-        attachment = FileContentWithMimeType(file_path=file_path, mime_type=mime_type)
-        msg = UserMessage(
-            text="Parse this invoice and return the JSON exactly as specified, including per-row confidence.",
-            file_contents=[attachment],
-        )
-        response = await chat.send_message(msg)
-        text = response if isinstance(response, str) else str(response)
-        cleaned = _clean_json_text(text)
-        data = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.warning("OCR JSON decode failed: %s", e)
-        return _empty_response(f"Could not parse JSON: {str(e)[:140]}", provider, model)
-    except Exception as e:
-        logger.exception("OCR failed")
-        return _empty_response(f"OCR error: {str(e)[:140]}", provider, model)
 
+# ---------- Internal: Gemini text normalizer (consumes OCR.Space text) ----------
+async def _gemini_normalize_text(raw_text: str, file_basename: str) -> tuple[dict, str]:
+    """Feed OCR.Space-extracted text into Gemini for V2.2-schema normalization.
+    Returns (parsed_json, cleaned_text). Raises on parse failure."""
+    chat = _build_chat(f"invoice-norm-{file_basename}", INVOICE_NORMALIZE_PROMPT)
+    # truncate very long text to keep prompt fast (most invoices < 8k chars)
+    snippet = raw_text[:16000]
+    msg = UserMessage(
+        text=f"OCR text from invoice (verbatim, table structure best-effort preserved):\n\n```\n{snippet}\n```\n\nReturn the JSON object now.",
+    )
+    response = await chat.send_message(msg)
+    text = response if isinstance(response, str) else str(response)
+    cleaned = _clean_json_text(text)
+    return json.loads(cleaned), cleaned
+
+
+def _build_response(
+    data: dict,
+    cleaned_text: str,
+    *,
+    provider: str,
+    model: str,
+    effective_provider: str,
+    ocr_space_confidence: float = 0.0,
+    ocr_raw_text: str = "",
+) -> dict:
+    """Take a normalized Gemini JSON dict, run validation/heuristics, return the
+    canonical response used by server.py."""
     items = data.get("items") or data.get("line_items") or []
     if not isinstance(items, list):
         items = []
 
-    # Validate + enrich each row
     validated_items: list[dict] = []
-    combined_scores: list[float] = []
     llm_scores: list[float] = []
     heur_scores: list[float] = []
     for it in items:
@@ -292,18 +366,21 @@ async def parse_invoice(file_path: str, mime_type: str) -> dict:
         flags = _validate_item(it)
         merged = {**it, **flags}
         validated_items.append(merged)
-        combined_scores.append(flags["confidence"])
         llm_scores.append(flags["llm_confidence"])
         heur_scores.append(flags["heuristic_confidence"])
 
     legacy_lines = [_to_legacy_line_item(x) for x in validated_items]
 
     overall_llm = _clip01(data.get("overall_confidence", 0))
-    # Prefer explicit overall_confidence if model provided one; else average of rows
     avg_llm = round(overall_llm if overall_llm > 0 else (sum(llm_scores) / len(llm_scores) if llm_scores else 0.0), 3)
     avg_heur = round(sum(heur_scores) / len(heur_scores), 3) if heur_scores else 0.0
     w = _get_llm_weight()
-    avg_combined = round(w * avg_llm + (1 - w) * avg_heur, 3)
+    # When OCR.Space is in the pipeline, blend its confidence too so the user
+    # sees a realistic combined score that reflects the upstream extraction.
+    if ocr_space_confidence > 0:
+        avg_combined = round(0.5 * avg_llm + 0.3 * avg_heur + 0.2 * ocr_space_confidence, 3)
+    else:
+        avg_combined = round(w * avg_llm + (1 - w) * avg_heur, 3)
 
     return {
         "vendor_name": data.get("vendor_name", "") or "",
@@ -313,17 +390,115 @@ async def parse_invoice(file_path: str, mime_type: str) -> dict:
         "cgst": float(data.get("cgst") or 0),
         "sgst": float(data.get("sgst") or 0),
         "igst": float(data.get("igst") or 0),
-        # V2.2 native
         "items": validated_items,
-        # Legacy (back-compat with server.py)
         "line_items": legacy_lines,
         "confidence_score": avg_combined,
         "llm_confidence": avg_llm,
         "heuristic_confidence": avg_heur,
-        "provider": provider,
+        "ocr_space_confidence": ocr_space_confidence,
+        "provider": provider,                       # what env asked for
+        "effective_provider": effective_provider,    # what actually ran
         "model": model,
-        "_raw": cleaned[:1500],
+        "_raw": cleaned_text[:1500],
+        "ocr_raw_text": ocr_raw_text[:6000],         # OCR.Space full text (or empty for gemini-only)
     }
+
+
+# ---------- Public API ----------
+async def parse_invoice(file_path: str, mime_type: str) -> dict:
+    """Run OCR on a vendor invoice. Returns a dict combining V2.2 + legacy keys.
+
+    Mode is controlled by env `OCR_PROVIDER`:
+      - "gemini"     → direct multimodal Gemini OCR (legacy)
+      - "ocr_space"  → OCR.Space text + Gemini normalize (fallback to direct Gemini)
+      - "hybrid"     → OCR.Space first; if low-confidence/empty → direct Gemini
+
+    Output keys (used by server.py):
+      vendor_name, invoice_number, invoice_date, total_amount, cgst, sgst, igst,
+      items[], line_items[], confidence_score, llm_confidence, heuristic_confidence,
+      ocr_space_confidence, ocr_raw_text, provider, effective_provider, model
+    """
+    provider, model = _get_provider_model()
+    basename = os.path.basename(file_path)
+
+    # ----- Mode: gemini (legacy, no OCR.Space) -----
+    if provider == "gemini":
+        try:
+            data, cleaned = await _gemini_direct(file_path, mime_type, model)
+        except json.JSONDecodeError as e:
+            logger.warning("OCR JSON decode failed: %s", e)
+            return _empty_response(f"Could not parse JSON: {str(e)[:140]}", provider, model)
+        except Exception as e:
+            logger.exception("OCR failed")
+            return _empty_response(f"OCR error: {str(e)[:140]}", provider, model)
+        return _build_response(data, cleaned, provider=provider, model=model, effective_provider="gemini")
+
+    # ----- Mode: ocr_space or hybrid -----
+    # Step 1: try OCR.Space
+    ocr_space_text = ""
+    ocr_space_conf = 0.0
+    ocr_space_error: Optional[str] = None
+    try:
+        ocr_resp = await parse_with_ocr_space(file_path, mime_type)
+        ocr_space_text = ocr_resp.get("raw_text", "") or ""
+        ocr_space_conf = float(ocr_resp.get("confidence", 0) or 0)
+        logger.info("ocr.space ok: pages=%s conf=%s len=%s",
+                    ocr_resp.get("pages"), ocr_space_conf, len(ocr_space_text))
+    except OcrSpaceError as e:
+        ocr_space_error = str(e)
+        logger.warning("ocr.space failed: %s", e)
+    except Exception as e:
+        ocr_space_error = f"unexpected: {e}"
+        logger.exception("ocr.space unexpected error")
+
+    # Decide whether OCR.Space output is usable
+    min_conf = _ocr_space_min_confidence()
+    ocr_space_ok = (
+        ocr_space_error is None
+        and ocr_space_text
+        and ocr_space_conf >= min_conf
+        and len(ocr_space_text.split()) >= 20  # sanity: at least 20 words for a real invoice
+    )
+
+    # Step 2a: if OCR.Space is usable, normalize via Gemini
+    if ocr_space_ok:
+        try:
+            data, cleaned = await _gemini_normalize_text(ocr_space_text, basename)
+            resp = _build_response(
+                data, cleaned,
+                provider=provider, model=model,
+                effective_provider="ocr_space",
+                ocr_space_confidence=ocr_space_conf,
+                ocr_raw_text=ocr_space_text,
+            )
+            # If Gemini produced zero items, fall through to direct Gemini in hybrid mode
+            if provider == "hybrid" and not resp.get("items"):
+                logger.info("ocr.space → gemini normalize returned 0 items; falling back to direct gemini")
+            else:
+                return resp
+        except Exception as e:
+            logger.warning("gemini normalize failed: %s — falling back", e)
+
+    # Step 2b: fallback to direct Gemini multimodal
+    try:
+        data, cleaned = await _gemini_direct(file_path, mime_type, model)
+        effective = "hybrid_fallback_gemini" if ocr_space_text else "gemini_fallback"
+        return _build_response(
+            data, cleaned,
+            provider=provider, model=model,
+            effective_provider=effective,
+            ocr_space_confidence=ocr_space_conf,
+            ocr_raw_text=ocr_space_text,
+        )
+    except json.JSONDecodeError as e:
+        logger.warning("Gemini fallback JSON decode failed: %s", e)
+        return _empty_response(f"Could not parse JSON: {str(e)[:140]}", provider, model)
+    except Exception as e:
+        logger.exception("Gemini fallback failed")
+        return _empty_response(
+            f"OCR error: {str(e)[:140]}" + (f" | ocr.space: {ocr_space_error}" if ocr_space_error else ""),
+            provider, model,
+        )
 
 
 async def parse_photo_order(file_path: str, mime_type: str) -> dict:
@@ -380,7 +555,10 @@ def _empty_response(reason: str, provider: str, model: str) -> dict:
         "confidence_score": 0.0,
         "llm_confidence": 0.0,
         "heuristic_confidence": 0.0,
+        "ocr_space_confidence": 0.0,
+        "ocr_raw_text": "",
         "provider": provider,
+        "effective_provider": "none",
         "model": model,
         "_error": reason,
     }

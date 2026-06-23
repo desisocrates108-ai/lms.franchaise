@@ -1,0 +1,3 @@
+SKU,Part Number,OEM Number,Product Name,Category,HSN,Barcode,Rack Location,Vendor,Landing Price,MRP,Opening Stock,Reorder Qty,Safety Stock
+TEST_BULK_001,PN001,OEM001,TEST_Bulk Part 1,Engine Parts,8708,BC001,A1-01,Bajaj Auto Genuine Parts Pvt Ltd,100,150,25,10,5
+TEST_BULK_002,PN002,OEM002,TEST_Bulk Part 2,Brakes,8708,BC002,A1-02,Bajaj Auto Genuine Parts Pvt Ltd,200,260,0,10,5

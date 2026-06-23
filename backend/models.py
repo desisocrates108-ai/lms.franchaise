@@ -209,7 +209,9 @@ class PurchaseInvoice(BaseModel):
     confidence_score: float = 0.0  # V2.1 — avg combined across rows
     llm_confidence: float = 0.0    # V2.2 — avg LLM self-reported
     heuristic_confidence: float = 0.0  # V2.2 — avg heuristic
-    ocr_provider: str = ""
+    ocr_space_confidence: float = 0.0  # V2.5 — OCR.Space provider score (0 if not used)
+    ocr_provider: str = ""             # env-requested provider (gemini/ocr_space/hybrid)
+    ocr_effective_provider: str = ""   # actually-ran provider (gemini/ocr_space/hybrid_fallback_gemini/...)
     ocr_model: str = ""
     created_by: str = ""
     created_at: str = Field(default_factory=now_iso)

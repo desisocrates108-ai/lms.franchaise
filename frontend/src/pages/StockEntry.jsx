@@ -128,6 +128,7 @@ export default function StockEntry() {
   const [confidence, setConfidence] = useState(0);
   const [llmConf, setLlmConf] = useState(0);
   const [heurConf, setHeurConf] = useState(0);
+  const [spaceConf, setSpaceConf] = useState(0);
   const [autoMatched, setAutoMatched] = useState(0);
   const [ocrMeta, setOcrMeta] = useState({});
   const [recent, setRecent] = useState([]);
@@ -179,8 +180,14 @@ export default function StockEntry() {
       setConfidence(r.data.confidence_score || 0);
       setLlmConf(r.data.llm_confidence || 0);
       setHeurConf(r.data.heuristic_confidence || 0);
+      setSpaceConf(r.data.ocr_space_confidence || 0);
       setAutoMatched(r.data.auto_matched_alias_count || 0);
-      setOcrMeta({ provider: r.data.ocr_provider, model: r.data.ocr_model });
+      setOcrMeta({
+        provider: r.data.ocr_provider,
+        effective_provider: r.data.ocr_effective_provider,
+        model: r.data.ocr_model,
+        raw_text_preview: r.data.ocr_raw_text_preview,
+      });
       if (r.data.error) toast.error("OCR partial: " + r.data.error);
       else toast.success(`Invoice parsed · ${(r.data.confidence_score * 100).toFixed(0)}% confidence${r.data.auto_matched_alias_count ? ` · ${r.data.auto_matched_alias_count} alias auto-match${r.data.auto_matched_alias_count > 1 ? "es" : ""}` : ""}`);
     } catch (e) {
@@ -302,7 +309,7 @@ export default function StockEntry() {
         <div>
           <div className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Hyper-Automated Ingestion</div>
           <h1 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-2">Stock Entry · AI OCR</h1>
-          <p className="text-sm text-muted-foreground mt-1">Drop a vendor invoice (PDF or image). Gemini reads it, you confirm, stock lands in Hub.</p>
+          <p className="text-sm text-muted-foreground mt-1">Drop a vendor invoice (PDF or image). OCR.Space extracts the table, Gemini normalizes it, you confirm, stock lands in Hub.</p>
         </div>
         <DateFilter value={dateRange} onChange={handleDateChange} storageKey="df:invoices" />
       </div>
@@ -331,12 +338,12 @@ export default function StockEntry() {
                 data-testid="file-input"
               />
               <span className="cursor-pointer inline-flex items-center gap-2 rounded bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90">
-                {uploading ? <><Sparkle size={14} className="animate-pulse" /> Parsing with Gemini…</> : <><CloudArrowUp size={14} /> Choose file</>}
+                {uploading ? <><Sparkle size={14} className="animate-pulse" /> Parsing invoice…</> : <><CloudArrowUp size={14} /> Choose file</>}
               </span>
             </label>
           </div>
           <div className="mt-6 text-xs text-muted-foreground flex items-center justify-center gap-1">
-            <Sparkle size={12} /> Powered by Gemini 3 Flash multimodal OCR
+            <Sparkle size={12} /> OCR.Space table extraction + Gemini 3 Flash normalization
           </div>
         </div>
       )}
@@ -364,7 +371,10 @@ export default function StockEntry() {
               <div className="text-sm font-medium flex items-center gap-2"><Sparkle size={14} /> Parsed Data — Reconcile</div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {confidence > 0 && (
-                  <ConfidenceChip label="Combined" value={confidence} icon={Gauge} tooltip="Weighted: LLM × heuristic" />
+                  <ConfidenceChip label="Combined" value={confidence} icon={Gauge} tooltip="Weighted: LLM × heuristic × OCR.Space" />
+                )}
+                {spaceConf > 0 && (
+                  <ConfidenceChip label="OCR.Space" value={spaceConf} icon={CloudArrowUp} tooltip="Raw text extraction quality from OCR.Space" />
                 )}
                 {llmConf > 0 && (
                   <ConfidenceChip label="LLM" value={llmConf} icon={Brain} tooltip={`Self-reported by ${ocrMeta?.model || "model"}`} />
@@ -372,9 +382,19 @@ export default function StockEntry() {
                 {heurConf > 0 && (
                   <ConfidenceChip label="Heuristic" value={heurConf} icon={Robot} tooltip="Rule-based: qty/hsn/desc/unit validity" />
                 )}
-                {ocrMeta?.model && (
-                  <Badge variant="outline" className="text-[10px] text-muted-foreground" title={`${ocrMeta.provider}/${ocrMeta.model}`}>
-                    {ocrMeta.model}
+                {ocrMeta?.effective_provider && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] gap-1 border-foreground/20"
+                    title={`Requested: ${ocrMeta.provider} · Used: ${ocrMeta.effective_provider} · Model: ${ocrMeta.model}`}
+                    data-testid="ocr-provider-badge"
+                  >
+                    <Sparkle size={9} weight="bold" />
+                    {ocrMeta.effective_provider === "ocr_space" && "OCR.Space + Gemini"}
+                    {ocrMeta.effective_provider === "gemini" && "Gemini"}
+                    {ocrMeta.effective_provider === "hybrid_fallback_gemini" && "Hybrid → Gemini fallback"}
+                    {ocrMeta.effective_provider === "gemini_fallback" && "Gemini (fallback)"}
+                    {ocrMeta.effective_provider === "none" && "OCR failed"}
                   </Badge>
                 )}
                 {autoMatched > 0 && (
@@ -393,6 +413,8 @@ export default function StockEntry() {
               <span data-testid="ocr-confidence">{Math.round((confidence || 0) * 100)}%</span>
               <span data-testid="ocr-confidence-llm">{Math.round((llmConf || 0) * 100)}%</span>
               <span data-testid="ocr-confidence-heuristic">{Math.round((heurConf || 0) * 100)}%</span>
+              <span data-testid="ocr-confidence-ocrspace">{Math.round((spaceConf || 0) * 100)}%</span>
+              <span data-testid="ocr-effective-provider">{ocrMeta?.effective_provider || ""}</span>
             </div>
 
             {invalidRows > 0 && (
