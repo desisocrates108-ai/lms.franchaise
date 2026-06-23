@@ -1,0 +1,53 @@
+{
+  "summary": "v2.7 Hub Accountant RBAC + Account Management end-to-end validation. Backend: 15/15 pytest v27 tests pass on live URL. Frontend: 9/10 user-visible flows pass (sidebar RBAC for all 4 roles, footer, no Emergent branding, login eye toggle, reset-password modal with both eye toggles, activate/disable toggle, last_login_at, FM blocked from /accounts UI+API). ONE CRITICAL bug: opening the New Account or Edit Account dialog crashes the entire /accounts page via ErrorBoundary due to a Radix Select invariant violation. This blocks every create/edit flow.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/stock-movements/audit", "issue": "Endpoint does not exist (returns 404). The review request listed it as needing 403 for hub_accountant, but the route is not registered. /api/stock-movements (without /audit) correctly returns 403 for accountant."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Accounts.jsx — New/Edit Account Dialog (Franchise Select)",
+        "issue": "Clicking [data-testid=account-new-btn] (or any account-edit-*) crashes the page with React ErrorBoundary 'Something went wrong'. Console error: 'A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.' Root cause: line 366 in /app/frontend/src/pages/Accounts.jsx has <SelectItem value=\"\">— None —</SelectItem> which is forbidden by @radix-ui/react-select. The franchise select uses value='' as the placeholder/None option. This crash blocks ALL create-account and edit-account flows for both super_admin and warehouse_manager. Reproduced on both roles.",
+        "selector": "[data-testid=\"account-new-btn\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Create franchise_manager account (super_admin + warehouse_manager)",
+        "issue": "Untestable from UI because dialog crashes before role/franchise selects render. Backend pytest (test_super_admin_can_create_each_role, test_warehouse_can_create_franchise_manager_in_hub) confirms API works — UI is the blocker.",
+        "affected_selectors": ["account-role-select", "account-franchise-select", "account-password-input", "account-confirm-input", "account-save-btn"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v27_accounts_rbac.py",
+    "/app/test_reports/pytest/iter9_v27.xml"
+  ],
+  "action_items": [
+    "FIX (CRITICAL) /app/frontend/src/pages/Accounts.jsx line 366: change <SelectItem value=\"\">— None —</SelectItem> to a non-empty sentinel value (e.g. value=\"__none__\") and translate that sentinel back to '' / null in the onChange handler at line 359 (Select value={editing.franchise_id || ''} onValueChange=...). Same fix likely needed if hub_id select ever adds an empty option. After fix, re-test the full create flow (admin: hub_accountant + warehouse_manager + franchise_manager creation; warehouse: only franchise_manager, hub-scoped 403).",
+    "Optional: register /api/stock-movements/audit endpoint OR update the v2.7 PRD to drop that path since the broader /api/stock-movements is already correctly returning 403 for hub_accountant."
+  ],
+  "critical_code_review_comments": [
+    "Accounts.jsx L359-368 — empty-string SelectItem is a known Radix Select footgun; pattern used throughout the codebase should be audited. Recommended pattern: const NONE='__none__'; <SelectItem value={NONE}>— None —</SelectItem>; value={editing.franchise_id || NONE}; onValueChange={(v)=>setEditing({...editing, franchise_id: v===NONE? '': v})}.",
+    "Accounts.jsx — the ErrorBoundary catches the crash but the resulting UX (full-page 'Something went wrong' screen) is harsh; consider a dialog-local boundary so the rest of the page remains usable when a modal misrenders.",
+    "Backend routers_accounts.py L269 — accounts-meta does `if 'hubs' in await _db.list_collection_names()` on every call. This issues a listCollections command per request; cache the result or just rely on find() returning empty.",
+    "Backend routers_accounts.py L62 — _is_franchise_in_hub silently returns False on missing franchise_id; for update_account at L177 this means PUTs without franchise_id from warehouse_manager will be rejected as 403 'Franchise must belong to your assigned hub' which is confusing. Add an explicit 400 if franchise_id is provided but empty.",
+    "Frontend Layout.jsx — `nav-stock-entry-ocr-` testid is generated from 'Stock Entry (OCR)' label kebab-casing producing a trailing dash. Either strip trailing/duplicate dashes in the regex or rename the label to 'Stock Entry'."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "15/15 (100%) — v27 suite + spot-checks for franchise_manager 403, accountant /api/stock-movements 403, last_login_at presence",
+    "frontend": "90% — every flow passes EXCEPT New/Edit Account dialog which crashes the page (blocks create/edit/role-dropdown verification)"
+  },
+  "test_credentials": "admin@servall.com/Admin@123, accountant@servall.com/Accountant@123, warehouse@servall.com/Warehouse@123, franchise@servall.com/Franchise@123 — all verified working live.",
+  "seed_data_creation": "Created qa.fm@servall.com (franchise_manager) and qa.wh_fm@servall.com (franchise_manager) via backend pytest. Reset franchise@servall.com password back to Franchise@123 after test (live login still works).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Once the SelectItem empty-value bug is fixed in Accounts.jsx L366, re-test: (1) super_admin New Account → role dropdown must contain exactly {hub_accountant, warehouse_manager, franchise_manager} (no super_admin); (2) warehouse_manager New Account → role dropdown must contain ONLY franchise_manager; (3) warehouse_manager trying to pick a franchise outside hub-main → expect 403 toast; (4) full create → row appears with Active green badge. Backend create logic is already verified by pytest so just exercise UI. Also note the /api/stock-movements/audit path in the review request — it does not exist in the codebase (only /api/stock-movements which already 403s for accountant).",
+  "rca of the issue": "Accounts.jsx line 366 has <SelectItem value=''>— None —</SelectItem>. @radix-ui/react-select v2+ throws synchronously when an Item has value='' because the empty string is reserved for the placeholder/cleared state of the parent Select. When the New/Edit dialog renders, the Select tries to mount this Item, throws inside the React render, and the nearest ErrorBoundary (in Layout) catches it — replacing the entire /accounts main content with the 'Something went wrong' fallback. Reproduction: login as admin → /accounts → click 'New Account'. Mitigation: use a non-empty sentinel value (e.g. '__none__' or 'NONE') and translate it back to empty/null in the onValueChange handler that writes to editing.franchise_id."
+}
