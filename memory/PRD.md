@@ -122,6 +122,29 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - Tests: 134/134 backend pytest passing.
 - Local commit: `6ab7bb1`.
 
+### v2.7 — Hub Accountant RBAC + Account Management + Branding Cleanup (Feb 2026)
+- **Hub Accountant role restructured** (frontend + backend enforced):
+  - Allowed: Dashboard, Purchase Orders, Vendors, Tax Invoices, Credit Notes, Debit Notes, Reports, Inventory Aging.
+  - Blocked: Inventory, Bulk Import, Stock Entry/OCR, Franchises, Indents, Delivery Challans, Cycle Count, Pricing Engine, Franchise Tiers, Organization Settings, Audit Logs, Account Management.
+  - 403 enforced on `/api/audit-logs`, `/api/cycle-counts/*`, `/api/invoices/upload`, `/api/invoices/{id}/commit`, `/api/inventory/bulk-import`, `/api/stock-movements/audit`.
+- **Account Management module (new)** at `/accounts`:
+  - Backend: `routers_accounts.py` — `GET/POST/PUT /api/accounts`, `POST /api/accounts/{id}/{disable|activate|reset-password}`, `GET /api/accounts-meta`.
+  - Permission matrix:
+    - `super_admin` → can manage hub_accountant / warehouse_manager / franchise_manager (no super_admin promotion via this UI).
+    - `warehouse_manager` → can create + edit + reset-password ONLY franchise_manager accounts whose franchise belongs to their assigned `hub_id`.
+    - `hub_accountant` / `franchise_manager` → 403 (no access).
+  - Tracked: username, mobile, hub_id, created_by, updated_by, updated_at, last_login_at.
+  - Frontend: full CRUD page with search, create/edit/reset-password/activate-disable/view dialogs, all data-testids.
+- **Password visibility toggle** (Eye / EyeSlash):
+  - Login page (pre-existing).
+  - New `PasswordField` reused in Create/Edit/Reset dialogs in Account Management.
+- **Branding cleanup**:
+  - Stripped `emergent-badge`, "Made with Emergent" text, `assets.emergent.sh/scripts/emergent-main.js`, posthog tracking, and "A product of emergent.sh" meta from `public/index.html`.
+  - Added bottom-left footer "© 2026 Servall ERP" in `Layout.jsx`.
+- **Schema additions**: `User.hub_id`, `User.username`, `User.mobile`, `User.created_by/updated_by/updated_at/last_login_at`; `Franchise.hub_id` (default `hub-main`).
+- **Login flow**: now updates `last_login_at` on successful login.
+- **Tests**: 179/179 backend pytest passing (was 164; +15 new in `test_v27_accounts_rbac.py`).
+
 ### v2.6 — Production Hardening: Saurashtra Bug + Optional LLM Key (Feb 2026)
 - **Critical bug fix (production blocker)**: Mongo `$regex` query in product fuzzy-match used unescaped OCR text → any vendor description with `(`, `)`, `|`, `*`, `+` (very common in automotive parts names) crashed the upload with a 502. Now uses `re.escape()` before the query.
 - **OCR.Space partial-success handling**: free tier has a 3-page limit and flags `IsErroredOnProcessing=true` even when it returns extracted text for the first N pages. Client now treats this as a soft warning + uses the partial text (confidence 0.70). Verified live with the user's 5-page Saurashtra Sales Agency PDF — extracted 53 line items, 86% combined confidence.
