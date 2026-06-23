@@ -356,14 +356,14 @@ export default function Accounts() {
               <div>
                 <Label>Assigned Franchise</Label>
                 <Select
-                  value={editing.franchise_id || ""}
-                  onValueChange={(v) => setEditing({ ...editing, franchise_id: v })}
+                  value={editing.franchise_id || "__none__"}
+                  onValueChange={(v) => setEditing({ ...editing, franchise_id: v === "__none__" ? "" : v })}
                 >
                   <SelectTrigger data-testid="account-franchise-select">
                     <SelectValue placeholder="— None —" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— None —</SelectItem>
+                    <SelectItem value="__none__">— None —</SelectItem>
                     {(meta.franchises || []).map((f) => (
                       <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
                     ))}
