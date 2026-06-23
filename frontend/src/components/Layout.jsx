@@ -6,29 +6,36 @@ import {
   House, Package, FileText, Truck, Users, Storefront, ChartBar,
   ListMagnifyingGlass, ClipboardText, ShieldCheck, Receipt, CurrencyInr,
   Sun, Moon, SignOut, MagnifyingGlass, List as MenuIcon, X, UploadSimple, Crown,
-  ChartLine, FileText as InvoiceIcon, Gear, ArrowUUpLeft, ArrowUDownLeft,
+  ChartLine, FileText as InvoiceIcon, Gear, ArrowUUpLeft, ArrowUDownLeft, UserGear,
 } from "@phosphor-icons/react";
 
+// v2.7 — RBAC redesign:
+//  - hub_accountant: ONLY Dashboard / POs / Vendors / Tax Invoices / Credit Notes /
+//    Debit Notes / Reports / Inventory Aging
+//  - warehouse_manager: gets Account Management (franchise-manager-only scope)
+//  - super_admin: gets Account Management + everything else
+//  - franchise_manager: unchanged
 const NAV = [
   { to: "/", label: "Dashboard", icon: House, roles: null },
-  { to: "/inventory", label: "Inventory", icon: Package, roles: ["super_admin", "warehouse_manager", "hub_accountant"] },
-  { to: "/inventory/bulk-import", label: "Bulk Import", icon: UploadSimple, roles: ["super_admin", "warehouse_manager", "hub_accountant"] },
-  { to: "/stock-entry", label: "Stock Entry (OCR)", icon: FileText, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
+  { to: "/inventory", label: "Inventory", icon: Package, roles: ["super_admin", "warehouse_manager"] },
+  { to: "/inventory/bulk-import", label: "Bulk Import", icon: UploadSimple, roles: ["super_admin", "warehouse_manager"] },
+  { to: "/stock-entry", label: "Stock Entry (OCR)", icon: FileText, roles: ["super_admin", "warehouse_manager"] },
   { to: "/purchase-orders", label: "Purchase Orders", icon: ClipboardText, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/vendors", label: "Vendors", icon: Users, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
-  { to: "/franchises", label: "Franchises", icon: Storefront, roles: ["super_admin", "hub_accountant"] },
-  { to: "/indents", label: "Indents", icon: Receipt, roles: null },
-  { to: "/delivery-challans", label: "Delivery Challans", icon: Truck, roles: null },
+  { to: "/franchises", label: "Franchises", icon: Storefront, roles: ["super_admin"] },
+  { to: "/indents", label: "Indents", icon: Receipt, roles: ["super_admin", "warehouse_manager", "franchise_manager"] },
+  { to: "/delivery-challans", label: "Delivery Challans", icon: Truck, roles: ["super_admin", "warehouse_manager", "franchise_manager"] },
   { to: "/tax-invoices", label: "Tax Invoices", icon: InvoiceIcon, roles: ["super_admin", "hub_accountant", "franchise_manager"] },
   { to: "/credit-notes", label: "Credit Notes", icon: ArrowUUpLeft, roles: ["super_admin", "hub_accountant", "warehouse_manager", "franchise_manager"] },
   { to: "/debit-notes", label: "Debit Notes", icon: ArrowUDownLeft, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/aging", label: "Inventory Aging", icon: ChartBar, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/cycle-count", label: "Cycle Count", icon: ListMagnifyingGlass, roles: ["super_admin", "warehouse_manager"] },
-  { to: "/pricing", label: "Pricing Engine", icon: CurrencyInr, roles: ["super_admin", "hub_accountant"] },
-  { to: "/pricing/tiers", label: "Franchise Tiers", icon: Crown, roles: ["super_admin", "hub_accountant"] },
+  { to: "/pricing", label: "Pricing Engine", icon: CurrencyInr, roles: ["super_admin"] },
+  { to: "/pricing/tiers", label: "Franchise Tiers", icon: Crown, roles: ["super_admin"] },
   { to: "/reports", label: "Reports", icon: ChartLine, roles: ["super_admin", "hub_accountant", "warehouse_manager"] },
   { to: "/settings/org", label: "Organization Settings", icon: Gear, roles: ["super_admin"] },
-  { to: "/audit-logs", label: "Audit Logs", icon: ShieldCheck, roles: ["super_admin", "hub_accountant"] },
+  { to: "/accounts", label: "Account Management", icon: UserGear, roles: ["super_admin", "warehouse_manager"] },
+  { to: "/audit-logs", label: "Audit Logs", icon: ShieldCheck, roles: ["super_admin"] },
 ];
 
 export default function Layout({ children }) {
@@ -158,6 +165,9 @@ export default function Layout({ children }) {
         <main className="px-4 py-6 lg:px-8 lg:py-8 animate-fade-in" data-testid="main-content">
           {children}
         </main>
+        <footer className="px-4 lg:px-8 pb-4 text-[11px] text-muted-foreground" data-testid="app-footer">
+          © 2026 Servall ERP
+        </footer>
       </div>
     </div>
   );

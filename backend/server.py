@@ -195,6 +195,11 @@ async def login(body: LoginRequest):
     if not user.get("active", True):
         raise HTTPException(status_code=403, detail="Account disabled")
     token = create_token(user["id"], user["email"], user["role"])
+    # Track last_login_at (v2.7)
+    try:
+        await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now_iso()}})
+    except Exception:
+        pass
     user.pop("password_hash", None)
     return {"token": token, "user": user}
 
@@ -434,7 +439,7 @@ async def bulk_margin(body: BulkMarginRequest, request: Request,
 async def upload_invoice(
     request: Request,
     file: UploadFile = File(...),
-    user: dict = Depends(require_roles("super_admin", "hub_accountant", "warehouse_manager")),
+    user: dict = Depends(require_roles("super_admin", "warehouse_manager")),
 ):
     """Upload invoice file (PDF/image), run OCR, return parsed draft."""
     ext = (file.filename or "upload").split(".")[-1].lower()
@@ -609,7 +614,7 @@ class CommitInvoiceRequest(BaseModel):
 
 @api.post("/invoices/{iid}/commit")
 async def commit_invoice(iid: str, body: CommitInvoiceRequest, request: Request,
-                          user: dict = Depends(require_roles("super_admin", "hub_accountant", "warehouse_manager"))):
+                          user: dict = Depends(require_roles("super_admin", "warehouse_manager"))):
     """Commit a reconciled invoice: update product prices, add to hub stock."""
     inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
     if not inv:
@@ -1157,13 +1162,13 @@ async def generate_cycle_count(request: Request, type: str = Form("weekly"),
 
 
 @api.get("/cycle-counts")
-async def list_cycle_counts(user: dict = Depends(get_current_user)):
+async def list_cycle_counts(user: dict = Depends(require_roles("super_admin", "warehouse_manager"))):
     docs = await db.cycle_counts.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return docs
 
 
 @api.get("/cycle-counts/{ccid}")
-async def get_cycle_count(ccid: str, user: dict = Depends(get_current_user)):
+async def get_cycle_count(ccid: str, user: dict = Depends(require_roles("super_admin", "warehouse_manager"))):
     doc = await db.cycle_counts.find_one({"id": ccid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Not found")
@@ -1203,7 +1208,7 @@ async def submit_cycle_count(ccid: str, body: CycleCountSubmit, request: Request
 
 # ============ AUDIT LOGS ============
 @api.get("/audit-logs")
-async def list_audit_logs(limit: int = 100, user: dict = Depends(require_roles("super_admin", "hub_accountant"))):
+async def list_audit_logs(limit: int = 100, user: dict = Depends(require_roles("super_admin"))):
     docs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
     return docs
 
@@ -1334,10 +1339,10 @@ async def list_stock_movements(
     reference_type: Optional[str] = None,
     reference_id: Optional[str] = None,
     limit: int = 200,
-    user: dict = Depends(require_roles("super_admin", "warehouse_manager", "hub_accountant")),
+    user: dict = Depends(require_roles("super_admin", "warehouse_manager")),
 ):
     """Immutable audit trail of every stock change (hub or franchise).
-    Visible to admin / warehouse / accountant — NOT to franchise managers."""
+    Visible to admin / warehouse only — NOT to hub_accountant or franchise managers."""
     query: dict = {}
     if product_id:
         query["product_id"] = product_id
@@ -1408,6 +1413,12 @@ async def _returns_adjust_stock(product_id: str, qty_delta: float, location_type
 
 routers_returns.init(db=db, log_audit_fn=log_audit, adjust_stock_fn=_returns_adjust_stock)
 app.include_router(routers_returns.router, prefix="/api")
+
+# v2.7 — Account Management module
+import routers_accounts  # noqa: E402
+
+routers_accounts.init(db=db, log_audit_fn=log_audit)
+app.include_router(routers_accounts.router, prefix="/api")
 
 # Serve uploaded files
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

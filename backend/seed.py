@@ -18,10 +18,10 @@ DEMO_TIERS = [
 ]
 
 DEMO_USERS = [
-    {"email": "admin@servall.com", "password": "Admin@123", "full_name": "Servall Super Admin", "role": "super_admin"},
-    {"email": "accountant@servall.com", "password": "Accountant@123", "full_name": "Hub Accountant", "role": "hub_accountant"},
-    {"email": "warehouse@servall.com", "password": "Warehouse@123", "full_name": "Warehouse Manager", "role": "warehouse_manager"},
-    {"email": "franchise@servall.com", "password": "Franchise@123", "full_name": "Delhi Franchise Owner", "role": "franchise_manager", "franchise_code": "FR-DEL-001"},
+    {"email": "admin@servall.com", "password": "Admin@123", "full_name": "Servall Super Admin", "role": "super_admin", "username": "admin"},
+    {"email": "accountant@servall.com", "password": "Accountant@123", "full_name": "Hub Accountant", "role": "hub_accountant", "username": "accountant", "hub_id": "hub-main", "mobile": "+91-9810000010"},
+    {"email": "warehouse@servall.com", "password": "Warehouse@123", "full_name": "Warehouse Manager", "role": "warehouse_manager", "username": "warehouse", "hub_id": "hub-main", "mobile": "+91-9810000011"},
+    {"email": "franchise@servall.com", "password": "Franchise@123", "full_name": "Delhi Franchise Owner", "role": "franchise_manager", "franchise_code": "FR-DEL-001", "username": "franchise.delhi", "mobile": "+91-9810000012"},
 ]
 
 DEMO_FRANCHISES = [

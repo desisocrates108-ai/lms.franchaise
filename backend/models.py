@@ -23,6 +23,9 @@ class UserBase(BaseModel):
     full_name: str
     role: Role
     franchise_id: Optional[str] = None  # required if role==franchise_manager
+    hub_id: Optional[str] = None        # required if role==warehouse_manager/hub_accountant
+    username: Optional[str] = None
+    mobile: Optional[str] = None
     active: bool = True
 
 
@@ -30,14 +33,39 @@ class UserCreate(UserBase):
     password: str
 
 
+class UserUpdate(BaseModel):
+    """Partial-update payload for PUT /accounts/{id}."""
+    model_config = ConfigDict(extra="ignore")
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    mobile: Optional[str] = None
+    username: Optional[str] = None
+    role: Optional[Role] = None
+    franchise_id: Optional[str] = None
+    hub_id: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class PasswordResetIn(BaseModel):
+    new_password: str
+
+
 class User(UserBase):
     id: str = Field(default_factory=gen_id)
     created_at: str = Field(default_factory=now_iso)
+    created_by: Optional[str] = None
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
+    last_login_at: Optional[str] = None
 
 
 class UserPublic(UserBase):
     id: str
     created_at: str
+    created_by: Optional[str] = None
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
+    last_login_at: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -65,6 +93,7 @@ class Franchise(BaseModel):
     credit_limit: float = 0.0
     active: bool = True
     tier_id: Optional[str] = None  # V2.1 — franchise pricing tier
+    hub_id: str = "hub-main"  # v2.7 — which hub this franchise belongs to (account-mgmt scoping)
     created_at: str = Field(default_factory=now_iso)
 
 

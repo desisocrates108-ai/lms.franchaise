@@ -251,8 +251,9 @@ class TestRBAC:
         assert isinstance(r.json(), list)
 
     def test_audit_logs_accountant(self, accountant_client):
+        # v2.7: hub_accountant no longer has access to audit logs
         r = accountant_client.get(f"{BASE_URL}/api/audit-logs")
-        assert r.status_code == 200
+        assert r.status_code == 403
 
     def test_franchise_cannot_create_indent_for_other(self, franchise_client, admin_client, franchise_user):
         franchises = admin_client.get(f"{BASE_URL}/api/franchises").json()

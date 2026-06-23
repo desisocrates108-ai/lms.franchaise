@@ -29,6 +29,7 @@ import CreditNotes from "@/pages/CreditNotes";
 import CreditNoteDetail from "@/pages/CreditNoteDetail";
 import DebitNotes from "@/pages/DebitNotes";
 import DebitNoteDetail from "@/pages/DebitNoteDetail";
+import Accounts from "@/pages/Accounts";
 import "@/App.css";
 
 function RequireAuth({ children }) {
@@ -70,6 +71,7 @@ function App() {
               <Route path="/debit-notes" element={<RequireAuth><DebitNotes /></RequireAuth>} />
               <Route path="/debit-notes/:id" element={<RequireAuth><DebitNoteDetail /></RequireAuth>} />
               <Route path="/settings/org" element={<RequireAuth><OrgSettings /></RequireAuth>} />
+              <Route path="/accounts" element={<RequireAuth><Accounts /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
