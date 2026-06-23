@@ -17,6 +17,7 @@ import os
 import json
 import logging
 import re
+import asyncio
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContentWithMimeType
@@ -181,6 +182,10 @@ def _clean_json_text(text: str) -> str:
     return text
 
 
+def _has_llm_key() -> bool:
+    return bool(os.environ.get("EMERGENT_LLM_KEY", "").strip())
+
+
 def _build_chat(session_id: str, system_message: str) -> LlmChat:
     """Build a Gemini chat session. The OCR_PROVIDER env decides the orchestration
     (ocr_space/gemini/hybrid) but the LLM itself is always Gemini for the
@@ -194,6 +199,107 @@ def _build_chat(session_id: str, system_message: str) -> LlmChat:
         session_id=session_id,
         system_message=system_message,
     ).with_model("gemini", model)
+
+
+# ---------- Regex fallback normalizer (used when EMERGENT_LLM_KEY is absent) ----------
+_VENDOR_HEADER_RE = re.compile(r"^([A-Z][A-Z &.,'-]{6,80})\s*$", re.MULTILINE)
+_INVOICE_NO_RE = re.compile(r"(?:invoice|bill|inv|tax\s*invoice)[^A-Za-z0-9]{0,3}(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/]{2,30})", re.IGNORECASE)
+_DATE_RE = re.compile(r"\b(\d{1,2})[\-\/\.](\d{1,2}|[A-Za-z]{3,9})[\-\/\.](\d{2,4})\b")
+_TOTAL_RE = re.compile(r"(?:grand\s*total|net\s*amount|total\s*amount|invoice\s*total)\s*[:\-]?\s*(?:rs\.?|inr|₹)?\s*([0-9][0-9,]*\.?[0-9]*)", re.IGNORECASE)
+_CGST_RE = re.compile(r"\bCGST\b[^0-9]{0,40}([0-9][0-9,]*\.?[0-9]*)", re.IGNORECASE)
+_SGST_RE = re.compile(r"\bSGST\b[^0-9]{0,40}([0-9][0-9,]*\.?[0-9]*)", re.IGNORECASE)
+_IGST_RE = re.compile(r"\bIGST\b[^0-9]{0,40}([0-9][0-9,]*\.?[0-9]*)", re.IGNORECASE)
+# A row token sequence: "<desc...> <hsn 4-8 digits> <qty> <rate> [<gst>] <amount>"
+_ROW_RE = re.compile(
+    r"^(?P<desc>[A-Za-z][A-Za-z0-9 ./\-&,()+]{2,60}?)\s+(?P<hsn>\d{4,8})\s+(?P<qty>\d{1,5}(?:\.\d{1,3})?)\s+(?P<rate>\d{1,7}(?:[.,]\d{2})?)\s+(?:(?P<gst>\d{1,2}(?:\.\d{1,2})?)\s+)?(?P<amount>\d{1,9}(?:[.,]\d{2})?)\s*$",
+    re.MULTILINE,
+)
+
+
+def _to_float(s: str) -> float:
+    try:
+        return float(s.replace(",", ""))
+    except (ValueError, AttributeError):
+        return 0.0
+
+
+def _normalize_date(d: str) -> str:
+    """Best-effort YYYY-MM-DD from common Indian formats (DD-MM-YYYY, DD/MM/YYYY, DD-Mon-YYYY)."""
+    from datetime import datetime
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%d-%b-%Y", "%d-%B-%Y",
+                "%d/%b/%Y", "%Y-%m-%d", "%d-%m-%y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(d, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return ""
+
+
+def _regex_normalize_text(raw_text: str) -> dict:
+    """Lightweight regex-only normalizer. Used when EMERGENT_LLM_KEY is absent so
+    OCR.Space text can still be turned into a usable V2.2-style envelope.
+
+    Output mirrors what Gemini would produce, minus per-row LLM confidence.
+    """
+    text = raw_text or ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    # vendor: first short ALL-CAPS heading-like line
+    vendor = ""
+    for ln in lines[:6]:
+        m = _VENDOR_HEADER_RE.match(ln)
+        if m:
+            vendor = m.group(1).strip()
+            break
+    if not vendor and lines:
+        vendor = lines[0][:80]
+
+    inv_no = ""
+    m = _INVOICE_NO_RE.search(text)
+    if m:
+        inv_no = m.group(1).strip()
+
+    inv_date = ""
+    m = _DATE_RE.search(text)
+    if m:
+        cand = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        inv_date = _normalize_date(cand)
+
+    total = 0.0
+    m = _TOTAL_RE.search(text)
+    if m:
+        total = _to_float(m.group(1))
+
+    cgst = _to_float(_CGST_RE.search(text).group(1)) if _CGST_RE.search(text) else 0.0
+    sgst = _to_float(_SGST_RE.search(text).group(1)) if _SGST_RE.search(text) else 0.0
+    igst = _to_float(_IGST_RE.search(text).group(1)) if _IGST_RE.search(text) else 0.0
+
+    items: list[dict] = []
+    for rm in _ROW_RE.finditer(text):
+        items.append({
+            "description": rm.group("desc").strip(),
+            "item_alias": "",
+            "hsn": rm.group("hsn"),
+            "qty": _to_float(rm.group("qty")),
+            "unit": "",
+            "price": _to_float(rm.group("rate")),
+            "cgst_percent": _to_float(rm.group("gst") or "0") / 2 if rm.group("gst") else 0.0,
+            "sgst_percent": _to_float(rm.group("gst") or "0") / 2 if rm.group("gst") else 0.0,
+            "net_amount": _to_float(rm.group("amount")),
+            "confidence": 0.55,   # regex parser is best-effort
+        })
+
+    return {
+        "vendor_name": vendor,
+        "invoice_number": inv_no,
+        "invoice_date": inv_date,
+        "total_amount": total,
+        "cgst": cgst,
+        "sgst": sgst,
+        "igst": igst,
+        "overall_confidence": 0.55 if items else 0.30,
+        "items": items,
+    }
 
 
 def _clip01(x) -> float:
@@ -328,14 +434,19 @@ async def _gemini_direct(file_path: str, mime_type: str, model: str) -> dict:
 # ---------- Internal: Gemini text normalizer (consumes OCR.Space text) ----------
 async def _gemini_normalize_text(raw_text: str, file_basename: str) -> tuple[dict, str]:
     """Feed OCR.Space-extracted text into Gemini for V2.2-schema normalization.
-    Returns (parsed_json, cleaned_text). Raises on parse failure."""
+    Returns (parsed_json, cleaned_text). Raises on parse failure or timeout."""
+    import asyncio
     chat = _build_chat(f"invoice-norm-{file_basename}", INVOICE_NORMALIZE_PROMPT)
     # truncate very long text to keep prompt fast (most invoices < 8k chars)
     snippet = raw_text[:16000]
     msg = UserMessage(
         text=f"OCR text from invoice (verbatim, table structure best-effort preserved):\n\n```\n{snippet}\n```\n\nReturn the JSON object now.",
     )
-    response = await chat.send_message(msg)
+    try:
+        timeout_s = float(os.environ.get("OCR_GEMINI_NORMALIZE_TIMEOUT", "55"))
+    except ValueError:
+        timeout_s = 55.0
+    response = await asyncio.wait_for(chat.send_message(msg), timeout=timeout_s)
     text = response if isinstance(response, str) else str(response)
     cleaned = _clean_json_text(text)
     return json.loads(cleaned), cleaned
@@ -420,9 +531,19 @@ async def parse_invoice(file_path: str, mime_type: str) -> dict:
     """
     provider, model = _get_provider_model()
     basename = os.path.basename(file_path)
+    llm_available = _has_llm_key()
 
     # ----- Mode: gemini (legacy, no OCR.Space) -----
     if provider == "gemini":
+        if not llm_available:
+            logger.warning(
+                "OCR_PROVIDER=gemini but EMERGENT_LLM_KEY is missing — "
+                "returning empty envelope. Set OCR_PROVIDER=ocr_space to use OCR.Space-only mode."
+            )
+            return _empty_response(
+                "EMERGENT_LLM_KEY missing — set OCR_PROVIDER=ocr_space for key-less mode",
+                provider, model,
+            )
         try:
             data, cleaned = await _gemini_direct(file_path, mime_type, model)
         except json.JSONDecodeError as e:
@@ -460,8 +581,21 @@ async def parse_invoice(file_path: str, mime_type: str) -> dict:
         and len(ocr_space_text.split()) >= 20  # sanity: at least 20 words for a real invoice
     )
 
-    # Step 2a: if OCR.Space is usable, normalize via Gemini
+    # Step 2a: if OCR.Space is usable
     if ocr_space_ok:
+        # Without an LLM key, we can still produce a usable envelope via regex normalization.
+        if not llm_available:
+            logger.warning("EMERGENT_LLM_KEY missing — using regex normalizer on OCR.Space text")
+            data = _regex_normalize_text(ocr_space_text)
+            cleaned = json.dumps(data)[:1500]
+            return _build_response(
+                data, cleaned,
+                provider=provider, model="regex",
+                effective_provider="ocr_space_regex",
+                ocr_space_confidence=ocr_space_conf,
+                ocr_raw_text=ocr_space_text,
+            )
+        # With an LLM key, normalize via Gemini for highest accuracy
         try:
             data, cleaned = await _gemini_normalize_text(ocr_space_text, basename)
             resp = _build_response(
@@ -476,10 +610,39 @@ async def parse_invoice(file_path: str, mime_type: str) -> dict:
                 logger.info("ocr.space → gemini normalize returned 0 items; falling back to direct gemini")
             else:
                 return resp
+        except asyncio.TimeoutError:
+            # Gemini normalize is slow → use regex on the OCR.Space text we already have.
+            # Avoid the direct-gemini fallback because it would likely time out too.
+            logger.warning("gemini normalize timed out — using regex normalizer on OCR.Space text")
+            data = _regex_normalize_text(ocr_space_text)
+            cleaned = json.dumps(data)[:1500]
+            return _build_response(
+                data, cleaned,
+                provider=provider, model="regex",
+                effective_provider="ocr_space_regex_timeout",
+                ocr_space_confidence=ocr_space_conf,
+                ocr_raw_text=ocr_space_text,
+            )
         except Exception as e:
             logger.warning("gemini normalize failed: %s — falling back", e)
 
-    # Step 2b: fallback to direct Gemini multimodal
+    # Step 2b: fallback to direct Gemini multimodal (only if key available)
+    if not llm_available:
+        # No LLM key and OCR.Space was unusable → best-effort regex on whatever text we did get
+        if ocr_space_text:
+            data = _regex_normalize_text(ocr_space_text)
+            cleaned = json.dumps(data)[:1500]
+            return _build_response(
+                data, cleaned,
+                provider=provider, model="regex",
+                effective_provider="ocr_space_regex_lowconf",
+                ocr_space_confidence=ocr_space_conf,
+                ocr_raw_text=ocr_space_text,
+            )
+        return _empty_response(
+            f"OCR.Space failed and no EMERGENT_LLM_KEY for fallback: {ocr_space_error or 'low confidence'}",
+            provider, model,
+        )
     try:
         data, cleaned = await _gemini_direct(file_path, mime_type, model)
         effective = "hybrid_fallback_gemini" if ocr_space_text else "gemini_fallback"

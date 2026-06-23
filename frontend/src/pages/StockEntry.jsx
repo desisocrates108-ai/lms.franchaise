@@ -191,7 +191,14 @@ export default function StockEntry() {
       if (r.data.error) toast.error("OCR partial: " + r.data.error);
       else toast.success(`Invoice parsed · ${(r.data.confidence_score * 100).toFixed(0)}% confidence${r.data.auto_matched_alias_count ? ` · ${r.data.auto_matched_alias_count} alias auto-match${r.data.auto_matched_alias_count > 1 ? "es" : ""}` : ""}`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      const msg = detail
+        ? `Upload failed: ${detail}`
+        : status
+          ? `Upload failed (HTTP ${status})${status === 502 || status === 504 ? " — OCR took too long or backend timed out. Retry in a moment." : ""}`
+          : "Upload failed: network or server error";
+      toast.error(msg);
     } finally {
       setUploading(false);
     }
@@ -391,6 +398,9 @@ export default function StockEntry() {
                   >
                     <Sparkle size={9} weight="bold" />
                     {ocrMeta.effective_provider === "ocr_space" && "OCR.Space + Gemini"}
+                    {ocrMeta.effective_provider === "ocr_space_regex" && "OCR.Space"}
+                    {ocrMeta.effective_provider === "ocr_space_regex_timeout" && "OCR.Space (LLM timeout)"}
+                    {ocrMeta.effective_provider === "ocr_space_regex_lowconf" && "OCR.Space (low-conf)"}
                     {ocrMeta.effective_provider === "gemini" && "Gemini"}
                     {ocrMeta.effective_provider === "hybrid_fallback_gemini" && "Hybrid → Gemini fallback"}
                     {ocrMeta.effective_provider === "gemini_fallback" && "Gemini (fallback)"}

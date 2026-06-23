@@ -84,13 +84,26 @@ async def parse_with_ocr_space(file_path: str, mime_type: str) -> dict:
     except Exception as e:
         raise OcrSpaceError(f"non-json response: {e}")
 
-    if payload.get("IsErroredOnProcessing"):
+    # OCR.Space sets IsErroredOnProcessing=true even when it returned partial text
+    # (e.g. "max page limit of 3 reached" on multi-page PDFs in the free tier).
+    # If we have any ParsedResults with actual text, treat it as a partial success.
+    results = payload.get("ParsedResults") or []
+    has_any_text = any((r.get("ParsedText") or "").strip() for r in results)
+    is_errored = bool(payload.get("IsErroredOnProcessing"))
+    partial_warning: Optional[str] = None
+
+    if is_errored:
         err = payload.get("ErrorMessage") or payload.get("ErrorDetails") or "unknown error"
         if isinstance(err, list):
             err = "; ".join(str(x) for x in err)
-        raise OcrSpaceError(f"ocr.space error: {str(err)[:200]}")
+        err = str(err)[:200]
+        if not has_any_text:
+            raise OcrSpaceError(f"ocr.space error: {err}")
+        # We do have partial text — warn but proceed
+        partial_warning = err
+        logger.warning("ocr.space partial success: %s — using extracted text from %d page(s)",
+                       err, len(results))
 
-    results = payload.get("ParsedResults") or []
     if not results:
         raise OcrSpaceError("empty ParsedResults")
 
@@ -99,7 +112,6 @@ async def parse_with_ocr_space(file_path: str, mime_type: str) -> dict:
     err_count = 0
     for r in results:
         pages_text.append(r.get("ParsedText") or "")
-        # OCR.Space doesn't return a numeric score, but FileParseExitCode == 1 means clean
         exit_code = r.get("FileParseExitCode")
         if exit_code != 1:
             err_count += 1
@@ -108,10 +120,11 @@ async def parse_with_ocr_space(file_path: str, mime_type: str) -> dict:
     raw_text = "\n\n".join(t for t in pages_text if t).strip()
 
     # Heuristic provider confidence:
-    #  - 0 pages with errors → start at 0.85
-    #  - some errors → 0.5
-    #  - subtract for very short text
-    if err_count == 0:
+    if partial_warning:
+        # multi-page truncation: text on the returned pages is usually clean, so
+        # rate it slightly lower than a clean run but well above the fallback threshold
+        conf = 0.70
+    elif err_count == 0:
         conf = 0.85
     elif err_count < len(results):
         conf = 0.55
@@ -128,4 +141,5 @@ async def parse_with_ocr_space(file_path: str, mime_type: str) -> dict:
         "confidence": round(conf, 3),
         "engine": engine,
         "provider": "ocr_space",
+        "partial_warning": partial_warning,
     }

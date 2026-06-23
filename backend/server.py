@@ -1,6 +1,7 @@
 """Servall ERP - Main FastAPI app."""
 import os
 import logging
+import re
 import shutil
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -472,10 +473,11 @@ async def upload_invoice(
             product = await db.products.find_one({"sku": sku}, {"_id": 0})
             if product:
                 match_source = "sku"
-        # 3) Name fuzzy
+        # 3) Name fuzzy (escape user-supplied text to prevent regex injection)
         if not product and pname:
+            safe_pname = re.escape(pname[:30])
             product = await db.products.find_one(
-                {"name": {"$regex": pname[:30], "$options": "i"}}, {"_id": 0}
+                {"name": {"$regex": safe_pname, "$options": "i"}}, {"_id": 0}
             )
             if product:
                 match_source = "name"
@@ -1422,6 +1424,28 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_start():
     logger.info("Starting Servall ERP backend")
+    # OCR provider sanity log
+    ocr_provider = os.environ.get("OCR_PROVIDER", "gemini").strip().lower()
+    has_llm = bool(os.environ.get("EMERGENT_LLM_KEY", "").strip())
+    has_ocr_space = bool(os.environ.get("OCR_SPACE_API_KEY", "").strip())
+    if ocr_provider in ("ocr_space", "hybrid") and not has_ocr_space:
+        logger.warning(
+            "OCR_PROVIDER=%s but OCR_SPACE_API_KEY is not set — uploads will fall back.",
+            ocr_provider,
+        )
+    if not has_llm:
+        if ocr_provider == "gemini":
+            logger.warning(
+                "EMERGENT_LLM_KEY missing AND OCR_PROVIDER=gemini — invoice uploads "
+                "will return an empty envelope. Set OCR_PROVIDER=ocr_space for key-less mode."
+            )
+        else:
+            logger.warning(
+                "EMERGENT_LLM_KEY missing — OCR.Space text will be normalized via regex "
+                "(no LLM). Set EMERGENT_LLM_KEY for higher-accuracy normalization."
+            )
+    else:
+        logger.info("OCR provider=%s; EMERGENT_LLM_KEY configured.", ocr_provider)
     await seed_demo_data(db)
 
 
