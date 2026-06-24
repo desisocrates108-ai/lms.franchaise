@@ -122,6 +122,24 @@ Build a Next-Gen B2B Franchise ERP for Servall — a multi-branch two-wheeler au
 - Tests: 134/134 backend pytest passing.
 - Local commit: `6ab7bb1`.
 
+### v2.8 — Franchise Model Templates + Auto-Discount Engine (Feb 2026)
+- **Replaced "Preview Prices" with "Preview Items"** on `/pricing/tiers`. New modal "Starter-Kit Template — {tier}" supports CRUD on template items (product dropdown + recommended qty), editable Default Margin %, editable Default Discount %, Save Template.
+- **New backend collection** `franchise_model_templates` with 4 default seeded templates: BUDDY (5% disc), STANDARD (7.5%), MASTER (10%), PERFORMAX (12.5%). Idempotent seed runs even on already-populated databases when the collection is empty.
+- **Franchise schema +** `startup_model: Optional[str]` (e.g. "MASTER") — used by the starter-kit resolver.
+- **New endpoints**:
+  - `GET/POST/PUT/DELETE /api/franchise-model-templates[/{model_name}]` (super_admin write, read for all logged-in users)
+  - `GET /api/franchises/{id}/has-stock-history` — `true` if any dispatched/delivered indent OR any delivery_challan exists for that franchise.
+  - `GET /api/franchises/{id}/starter-kit` — resolves template + computes per-line `unit_price` (franchise_price or landing × (1 + margin)), default discount, hub_stock, cost_price.
+  - `GET /api/reports/discount-summary?from=&to=&franchise_id=` — aggregates revenue_before_discount, discount_given, revenue_after_discount, cost_total, profit_after_discount with by_franchise breakdown.
+- **IndentLineItem schema +** `discount_percent: float`, `cost_price: float`. `create_indent` now computes `line_total = unit_price × qty × (1 - disc/100)` and persists cost for margin reports.
+- **NewOrder smart starter-kit** (`/orders/new` or `/indents/new`): on franchise select, calls `/has-stock-history`. If `false` AND franchise has `startup_model` with a template, shows a violet banner *"This franchise is new — load recommended inventory for MASTER?"* with Yes/No buttons. Yes → cart populates with template items + default discount.
+- **NewOrder Disc % column** — editable per-row; footer adds "Subtotal before discount" + "You saved ₹X" + "Total (after discount)" rows.
+- **Customer vs Internal Tax Invoice PDF**: `GET /api/tax-invoices/{id}/pdf?view=customer` (default — clean customer-facing) or `?view=internal` (adds a black "INTERNAL COPY — NOT FOR CUSTOMER" banner). Only `super_admin` / `hub_accountant` / `warehouse_manager` can request internal view. New `Internal Copy` button in TaxInvoiceDetail header for privileged roles.
+- **Tier cards de-duplicated** on the Pricing Tiers page (older seed runs occasionally inserted twin tiers).
+- **`/orders/new` route alias** added for the New Order page (was `/indents/new` only).
+- **Tests**: 9 new tests in `test_v28_templates_discount.py` (templates seeded, upsert + RBAC, has-stock-history, starter-kit, indent discount math, discount-summary report shape, customer vs internal PDF). Full regression: 188/188 backend pytest passing (was 179).
+- **Live verification**: indent IND-0184 raised against new MASTER-tier franchise with 5 lines at 12.5% discount → total ₹71,469.13 (vs ₹81,679 gross, saved ₹10,210). Reports endpoint returns full grand_total + by_franchise. Both customer and internal PDFs render valid %PDF-1.4 bytes.
+
 ### v2.7 — Hub Accountant RBAC + Account Management + Branding Cleanup (Feb 2026)
 - **Hub Accountant role restructured** (frontend + backend enforced):
   - Allowed: Dashboard, Purchase Orders, Vendors, Tax Invoices, Credit Notes, Debit Notes, Reports, Inventory Aging.
