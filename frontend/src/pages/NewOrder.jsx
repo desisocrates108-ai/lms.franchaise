@@ -181,10 +181,49 @@ function MethodCard({ icon: Icon, title, subtitle, onClick, badge, testid }) {
 function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) {
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
-  const [items, setItems] = useState([]); // {product_id, sku, name, price, requested_qty}
+  const [items, setItems] = useState([]); // {product_id, sku, name, price, requested_qty, discount_percent}
   const [submitting, setSubmitting] = useState(false);
+  // v2.8: starter-kit modal
+  const [kitOffer, setKitOffer] = useState(null); // {model_name, default_discount, line_items[]}
+  const [kitChecked, setKitChecked] = useState(false);
 
   useEffect(() => { api.get("/products?limit=2000").then((r) => setProducts(r.data)); }, []);
+
+  // v2.8: when a franchise is selected, check if it has any prior fulfilled order.
+  // If not — fetch the starter-kit template and offer to auto-load.
+  useEffect(() => {
+    if (!franchiseId || kitChecked) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const hist = await api.get(`/franchises/${franchiseId}/has-stock-history`);
+        if (cancelled) return;
+        if (hist.data?.has_history === false) {
+          const kit = await api.get(`/franchises/${franchiseId}/starter-kit`);
+          if (!cancelled && (kit.data?.line_items || []).length > 0) {
+            setKitOffer(kit.data);
+          }
+        }
+      } catch (e) { /* silent — no kit is fine */ }
+      setKitChecked(true);
+    })();
+    return () => { cancelled = true; };
+  }, [franchiseId, kitChecked]);
+
+  const loadStarterKit = () => {
+    if (!kitOffer) return;
+    const next = kitOffer.line_items.map((li) => ({
+      product_id: li.product_id,
+      sku: li.sku,
+      name: li.product_name,
+      price: li.unit_price,
+      requested_qty: li.requested_qty,
+      discount_percent: li.discount_percent,
+    }));
+    setItems(next);
+    toast.success(`Loaded ${next.length} items from ${kitOffer.model_name} starter kit`);
+    setKitOffer(null);
+  };
 
   const filtered = products.filter(p => {
     const q = search.trim().toLowerCase();
@@ -197,6 +236,7 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
     setItems([...items, {
       product_id: p.id, sku: p.sku, name: p.name,
       price: p.franchise_price || 0, requested_qty: 1,
+      discount_percent: kitOffer?.default_discount || 0,
     }]);
     setSearch("");
   };
@@ -206,9 +246,19 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
     if (typeof qty === "string" && qty.length > 1 && qty.startsWith("0")) next = qty.replace(/^0+/, "") || "0";
     setItems(items.map((i) => i.product_id === id ? { ...i, requested_qty: next } : i));
   };
+  const updateDiscount = (id, disc) => {
+    const v = Math.max(0, Math.min(100, Number(disc) || 0));
+    setItems(items.map((i) => i.product_id === id ? { ...i, discount_percent: v } : i));
+  };
   const remove = (id) => setItems(items.filter((i) => i.product_id !== id));
 
-  const total = items.reduce((s, i) => s + i.price * (Number(i.requested_qty) || 0), 0);
+  const computeLine = (i) => {
+    const qty = Number(i.requested_qty) || 0;
+    const gross = i.price * qty;
+    const disc = (Number(i.discount_percent) || 0) / 100;
+    return gross * (1 - disc);
+  };
+  const total = items.reduce((s, i) => s + computeLine(i), 0);
 
   const submit = async () => {
     if (!franchiseId) { toast.error("Pick a franchise"); return; }
@@ -219,7 +269,11 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
         franchise_id: franchiseId,
         priority,
         notes,
-        line_items: items.map(i => ({ product_id: i.product_id, requested_qty: Math.max(1, Number(i.requested_qty) || 1) })),
+        line_items: items.map(i => ({
+          product_id: i.product_id,
+          requested_qty: Math.max(1, Number(i.requested_qty) || 1),
+          discount_percent: Number(i.discount_percent) || 0,
+        })),
       });
       onSubmitted({ indent: r.data });
       toast.success(`Indent ${r.data.indent_number} created`);
@@ -231,6 +285,25 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
   return (
     <div className="space-y-4">
       <Button variant="ghost" onClick={onBack} size="sm"><ArrowLeft size={12} className="mr-1" /> Switch method</Button>
+
+      {/* v2.8 — Starter-kit auto-load offer */}
+      {kitOffer && (
+        <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-4 flex items-start gap-3" data-testid="starter-kit-offer">
+          <div className="rounded-full bg-violet-500/15 text-violet-700 p-2"><CheckCircle size={18} weight="duotone" /></div>
+          <div className="flex-1">
+            <div className="font-medium text-sm">This franchise is new.</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Would you like to load the recommended starter inventory for <strong>{kitOffer.model_name}</strong>?
+              ({kitOffer.line_items.length} items · default discount {kitOffer.default_discount}%)
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setKitOffer(null)} data-testid="starter-kit-skip">No, start blank</Button>
+            <Button size="sm" onClick={loadStarterKit} data-testid="starter-kit-load">Yes, load template</Button>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-md border border-border bg-card p-4 space-y-3">
         <Label>Search & Add Products</Label>
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Type SKU or name…" data-testid="sys-search-input" />
@@ -253,6 +326,7 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
                   <th className="px-3 py-2">SKU</th><th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2 text-right">Price</th>
                   <th className="px-3 py-2 text-right">Qty</th>
+                  <th className="px-3 py-2 text-right">Disc %</th>
                   <th className="px-3 py-2 text-right">Total</th>
                   <th className="px-3 py-2"></th>
                 </tr>
@@ -266,7 +340,10 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
                     <td className="px-3 py-2 text-right">
                       <Input type="number" inputMode="numeric" min={1} value={i.requested_qty ?? ""} onFocus={(e) => e.target.select()} onChange={(e) => updateQty(i.product_id, e.target.value)} className="w-20 ml-auto h-8" data-testid={`sys-qty-${i.sku}`} />
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatINR(i.price * (Number(i.requested_qty) || 0))}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Input type="number" inputMode="decimal" min={0} max={100} step="0.5" value={i.discount_percent ?? 0} onFocus={(e) => e.target.select()} onChange={(e) => updateDiscount(i.product_id, e.target.value)} className="w-20 ml-auto h-8" data-testid={`sys-disc-${i.sku}`} />
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatINR(computeLine(i))}</td>
                     <td className="px-3 py-2 text-right">
                       <button onClick={() => remove(i.product_id)} className="rounded p-1 hover:bg-destructive/10 text-destructive" data-testid={`sys-remove-${i.sku}`}><Trash size={14} /></button>
                     </td>
@@ -275,7 +352,7 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
               </tbody>
               <tfoot>
                 <tr className="bg-muted/40 border-t border-border font-medium">
-                  <td colSpan={4} className="px-3 py-2 text-right">Total</td>
+                  <td colSpan={5} className="px-3 py-2 text-right">Total (after discount)</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatINR(total)}</td>
                   <td></td>
                 </tr>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import api, { formatINR } from "@/lib/api";
+import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,8 @@ export default function FranchiseTiers() {
   const [tiers, setTiers] = useState([]);
   const [editing, setEditing] = useState(null);
   const [categories, setCategories] = useState([]);
-  const [preview, setPreview] = useState(null); // {tier, rows}
+  const [preview, setPreview] = useState(null); // {tier, items, default_discount}
+  const [products, setProducts] = useState([]);
   const canEdit = ["super_admin", "hub_accountant"].includes(user?.role);
 
   const load = async () => {
@@ -71,9 +72,57 @@ export default function FranchiseTiers() {
 
   const openPreview = async (t) => {
     try {
-      const r = await api.get(`/franchise-tiers/${t.id}/preview`);
-      setPreview(r.data);
-    } catch (e) { toast.error("Preview failed"); }
+      // Fetch the franchise model template for this tier (model_name = tier name)
+      let tpl;
+      try {
+        const r = await api.get(`/franchise-model-templates/${encodeURIComponent(t.name.toUpperCase())}`);
+        tpl = r.data;
+      } catch {
+        // No template yet — open empty editor
+        tpl = { model_name: t.name.toUpperCase(), default_margin: t.margin_percent, default_discount: 0, items: [] };
+      }
+      setPreview({ tier: t, ...tpl });
+    } catch (e) { toast.error("Could not load template"); }
+  };
+
+  const addTemplateItem = () => {
+    if (!products.length) return;
+    const p = products[0];
+    setPreview({
+      ...preview,
+      items: [...(preview.items || []), { sku: p.sku, product_id: p.id, product_name: p.name, recommended_qty: 1 }],
+    });
+  };
+  const updateTemplateItem = (i, field, val) => {
+    const list = [...(preview.items || [])];
+    if (field === "product_id") {
+      const p = products.find((pr) => pr.id === val);
+      list[i] = { ...list[i], product_id: val, sku: p?.sku || "", product_name: p?.name || "" };
+    } else if (field === "recommended_qty") {
+      list[i] = { ...list[i], recommended_qty: Number(val) || 0 };
+    } else {
+      list[i] = { ...list[i], [field]: val };
+    }
+    setPreview({ ...preview, items: list });
+  };
+  const removeTemplateItem = (i) => {
+    const list = [...(preview.items || [])];
+    list.splice(i, 1);
+    setPreview({ ...preview, items: list });
+  };
+  const saveTemplate = async () => {
+    try {
+      await api.post("/franchise-model-templates", {
+        model_name: preview.model_name || preview.tier.name.toUpperCase(),
+        default_margin: Number(preview.default_margin) || 22,
+        default_discount: Number(preview.default_discount) || 0,
+        items: (preview.items || []).filter((i) => i.product_id && i.recommended_qty > 0),
+      });
+      toast.success(`Template saved for ${preview.tier.name}`);
+      setPreview(null);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Save failed");
+    }
   };
 
   const addOverride = () => {
@@ -141,8 +190,8 @@ export default function FranchiseTiers() {
               </div>
             )}
             <div className="mt-4 pt-4 border-t border-border flex items-center gap-2">
-              <button onClick={() => openPreview(t)} className="text-xs text-muted-foreground hover:text-foreground" data-testid={`preview-tier-${t.name}`}>
-                <Tag size={12} className="inline mr-1" /> Preview prices
+              <button onClick={() => openPreview(t)} className="text-xs text-muted-foreground hover:text-foreground" data-testid={`preview-items-${t.name}`}>
+                <Tag size={12} className="inline mr-1" /> Preview items
               </button>
               <div className="ml-auto flex gap-1">
                 {canEdit && (
@@ -257,42 +306,85 @@ export default function FranchiseTiers() {
         </DialogContent>
       </Dialog>
 
-      {/* Preview dialog */}
+      {/* Template Items dialog (v2.8) */}
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="font-display">
-              Price Preview — <span style={{ color: preview?.tier?.color }}>{preview?.tier?.name}</span>
+              Starter-Kit Template — <span style={{ color: preview?.tier?.color }}>{preview?.tier?.name}</span>
             </DialogTitle>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 sticky top-0">
-                <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="px-3 py-2">SKU</th>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2 text-right">Landing</th>
-                  <th className="px-3 py-2 text-right">Margin</th>
-                  <th className="px-3 py-2 text-right">Tier Price</th>
-                  <th className="px-3 py-2 text-right">MRP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview?.rows?.map((r) => (
-                  <tr key={r.product_id} className="border-t border-border">
-                    <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
-                    <td className="px-3 py-2">{r.name}</td>
-                    <td className="px-3 py-2 text-muted-foreground text-xs">{r.category}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatINR(r.landing_price)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.margin_percent}%</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">{formatINR(r.tier_price)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatINR(r.mrp)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {preview && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Default Margin %</Label>
+                  <Input type="number" step="0.1" value={preview.default_margin || 0}
+                         onChange={(e) => setPreview({ ...preview, default_margin: e.target.value })}
+                         data-testid="template-default-margin" />
+                </div>
+                <div>
+                  <Label className="text-xs">Default Discount %</Label>
+                  <Input type="number" step="0.1" value={preview.default_discount || 0}
+                         onChange={(e) => setPreview({ ...preview, default_discount: e.target.value })}
+                         data-testid="template-default-discount" />
+                </div>
+              </div>
+              <div className="rounded border border-border overflow-hidden">
+                <div className="max-h-[40vh] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/40 sticky top-0">
+                      <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+                        <th className="px-3 py-2">Product</th>
+                        <th className="px-3 py-2 w-28">Recommended Qty</th>
+                        <th className="px-3 py-2 w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(preview.items || []).map((it, i) => (
+                        <tr key={i} className="border-t border-border" data-testid={`template-item-row-${i}`}>
+                          <td className="px-3 py-2">
+                            <select
+                              value={it.product_id}
+                              onChange={(e) => updateTemplateItem(i, "product_id", e.target.value)}
+                              className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs"
+                              data-testid={`template-item-product-${i}`}
+                            >
+                              {products.map((p) => (
+                                <option key={p.id} value={p.id}>{p.sku} — {p.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input type="number" min="0" value={it.recommended_qty}
+                                   onChange={(e) => updateTemplateItem(i, "recommended_qty", e.target.value)}
+                                   data-testid={`template-item-qty-${i}`} />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <Button size="icon" variant="ghost" onClick={() => removeTemplateItem(i)} data-testid={`template-item-remove-${i}`}>
+                              <Trash size={14} />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {(preview.items || []).length === 0 && (
+                        <tr><td colSpan={3} className="px-3 py-4 text-center text-muted-foreground text-xs">No items yet. Click &quot;Add Item&quot; below.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="border-t border-border bg-muted/20 px-3 py-2">
+                  <Button size="sm" variant="outline" onClick={addTemplateItem} className="gap-1" data-testid="template-add-item">
+                    <Plus size={12} /> Add Item
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreview(null)}>Cancel</Button>
+            {canEdit && <Button onClick={saveTemplate} data-testid="save-template-btn">Save Template</Button>}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

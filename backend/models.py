@@ -93,8 +93,32 @@ class Franchise(BaseModel):
     credit_limit: float = 0.0
     active: bool = True
     tier_id: Optional[str] = None  # V2.1 — franchise pricing tier
+    startup_model: Optional[str] = None  # v2.8 — Tier name used as starter-kit template (MASTER/STANDARD/BUDDY/PERFORMAX)
     hub_id: str = "hub-main"  # v2.7 — which hub this franchise belongs to (account-mgmt scoping)
     created_at: str = Field(default_factory=now_iso)
+
+
+# ============ FRANCHISE MODEL TEMPLATES (V2.8) ============
+class TemplateItem(BaseModel):
+    sku: str
+    product_id: str
+    product_name: str = ""
+    recommended_qty: float = 0
+
+
+class FranchiseModelTemplate(BaseModel):
+    """Starter-kit template attached to a tier/model name (e.g. MASTER).
+    When a brand-new franchise places its first order, the New Order screen
+    offers to auto-load these items into the cart."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    model_name: str  # MASTER / STANDARD / BUDDY / PERFORMAX (unique)
+    default_margin: float = 22.0  # carried from tier; used for reporting only
+    default_discount: float = 0.0  # default per-line discount % applied to orders
+    items: List[TemplateItem] = []
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None
 
 
 # ============ FRANCHISE TIERS (V2.1) ============
@@ -305,7 +329,9 @@ class IndentLineItem(BaseModel):
     allocated_qty: int = 0
     backorder_qty: int = 0
     unit_price: float = 0.0
-    line_total: float = 0.0
+    discount_percent: float = 0.0   # v2.8 — per-line discount
+    line_total: float = 0.0          # already discount-applied final amount
+    cost_price: float = 0.0          # v2.8 — internal (for margin reports)
 
 
 class Indent(BaseModel):

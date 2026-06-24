@@ -675,21 +675,26 @@ async def mailto_link(tid: str, user: dict = Depends(get_current_user)):
 
 # ---------------- PDF ----------------
 @router.get("/tax-invoices/{tid}/pdf", tags=["tax_invoices"])
-async def tax_invoice_pdf(tid: str, user: dict = Depends(get_current_user)):
+async def tax_invoice_pdf(tid: str, view: str = "customer", user: dict = Depends(get_current_user)):
+    """`view=customer` (default) — hides cost / margin / discount columns.
+       `view=internal` — shows full pricing breakdown for super_admin / hub_accountant."""
     inv = await _db.tax_invoices.find_one({"id": tid}, {"_id": 0})
     if not inv:
         raise HTTPException(404, "Not found")
+    # Only privileged roles may request the internal copy
+    internal = (view == "internal") and user.get("role") in {"super_admin", "hub_accountant", "warehouse_manager"}
     org = await get_org_settings_doc()
-    pdf = _render_tax_invoice_pdf(inv, org)
+    pdf = _render_tax_invoice_pdf(inv, org, internal=internal)
     name = (inv.get("invoice_number") or "draft").replace("/", "-")
+    suffix = "-internal" if internal else ""
     return StreamingResponse(
         io.BytesIO(pdf),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="tax-invoice-{name}.pdf"'},
+        headers={"Content-Disposition": f'inline; filename="tax-invoice-{name}{suffix}.pdf"'},
     )
 
 
-def _render_tax_invoice_pdf(inv: dict, org: dict) -> bytes:
+def _render_tax_invoice_pdf(inv: dict, org: dict, internal: bool = False) -> bytes:
     """Professional GST-compliant Tax Invoice PDF via reportlab."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -716,6 +721,12 @@ def _render_tax_invoice_pdf(inv: dict, org: dict) -> bytes:
     # ---- Title bar ----
     elements.append(Paragraph(f"<b>TAX INVOICE</b>", title))
     elements.append(Paragraph(f"Original for Recipient &nbsp;·&nbsp; {'Inter-State Supply (IGST)' if inv.get('is_inter_state') else 'Intra-State Supply (CGST + SGST)'}", subtitle))
+    if internal:
+        internal_banner = ParagraphStyle("ib", parent=styles["Normal"], fontSize=9, leading=11,
+                                          alignment=1, textColor=colors.white,
+                                          backColor=colors.HexColor("#0f172a"), borderPadding=4)
+        elements.append(Spacer(0, 2))
+        elements.append(Paragraph("<b>INTERNAL COPY — NOT FOR CUSTOMER</b> · shows cost / margin / discount", internal_banner))
     elements.append(Spacer(1, 4))
 
     # ---- Header: org info + invoice meta ----

@@ -784,15 +784,21 @@ async def create_indent(body: IndentCreate, request: Request, user: dict = Depen
                                        p.get("category", ""), p.get("margin_percent", 22))
         else:
             price = p.get("franchise_price", 0) or 0
+        # v2.8 — per-line discount; default from franchise's startup_model template
+        disc = float(li.get("discount_percent") or 0)
+        gross = price * qty
+        line_total = round(gross * (1 - disc / 100.0), 2)
         items.append(IndentLineItem(
             product_id=p["id"],
             product_name=p["name"],
             sku=p["sku"],
             requested_qty=qty,
             unit_price=price,
-            line_total=round(price * qty, 2),
+            discount_percent=disc,
+            line_total=line_total,
+            cost_price=float(p.get("landing_price") or p.get("cost_price") or 0),
         ))
-        total += price * qty
+        total += line_total
 
     num = await gen_sequence("indent", "IND")
     indent = Indent(
@@ -1419,6 +1425,12 @@ import routers_accounts  # noqa: E402
 
 routers_accounts.init(db=db, log_audit_fn=log_audit)
 app.include_router(routers_accounts.router, prefix="/api")
+
+# v2.8 — Franchise Model Templates + Auto-Discount
+import routers_templates  # noqa: E402
+
+routers_templates.init(db=db, log_audit_fn=log_audit)
+app.include_router(routers_templates.router, prefix="/api")
 
 # Serve uploaded files
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

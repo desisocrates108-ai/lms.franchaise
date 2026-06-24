@@ -105,6 +105,41 @@ async def seed_demo_data(db):
                             await db.franchises.update_one({"id": fr["id"]}, {"$set": {"tier_id": std_tier["id"]}})
 
         existing_users = await db.users.count_documents({})
+        # ----- v2.8: Default franchise model templates (idempotent — runs even on already-seeded DBs) -----
+        try:
+            existing_templates = await db.franchise_model_templates.count_documents({})
+            if existing_templates == 0:
+                products = await db.products.find({}, {"_id": 0}).sort("sku", 1).to_list(10)
+                if products:
+                    def _items(prod_qtys):
+                        return [{
+                            "sku": p["sku"], "product_id": p["id"],
+                            "product_name": p["name"], "recommended_qty": q,
+                        } for p, q in prod_qtys]
+
+                    templates = [
+                        {"model_name": "BUDDY",     "default_margin": 15.0, "default_discount": 5.0,
+                         "items": _items([(p, q) for p, q in zip(products, [10, 10, 5])])},
+                        {"model_name": "STANDARD",  "default_margin": 22.0, "default_discount": 7.5,
+                         "items": _items([(p, q) for p, q in zip(products, [15, 15, 10, 10])])},
+                        {"model_name": "MASTER",    "default_margin": 25.0, "default_discount": 10.0,
+                         "items": _items([(p, q) for p, q in zip(products, [20, 50, 25, 15, 10])])},
+                        {"model_name": "PERFORMAX", "default_margin": 28.0, "default_discount": 12.5,
+                         "items": _items([(p, q) for p, q in zip(products, [40, 100, 50, 30, 20, 20, 15])])},
+                    ]
+                    from models import FranchiseModelTemplate, TemplateItem
+                    for t in templates:
+                        tpl = FranchiseModelTemplate(
+                            model_name=t["model_name"],
+                            default_margin=t["default_margin"],
+                            default_discount=t["default_discount"],
+                            items=[TemplateItem(**i) for i in t["items"]],
+                        )
+                        await db.franchise_model_templates.insert_one(tpl.model_dump())
+                    logger.info("Seeded %d franchise model templates", len(templates))
+        except Exception:
+            logger.exception("Template seed failed")
+
         if existing_users > 0:
             logger.info("Demo data already seeded, skipping.")
             return
