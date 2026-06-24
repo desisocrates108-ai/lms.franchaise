@@ -258,7 +258,9 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
     const disc = (Number(i.discount_percent) || 0) / 100;
     return gross * (1 - disc);
   };
+  const grossTotal = items.reduce((s, i) => s + i.price * (Number(i.requested_qty) || 0), 0);
   const total = items.reduce((s, i) => s + computeLine(i), 0);
+  const savings = grossTotal - total;
 
   const submit = async () => {
     if (!franchiseId) { toast.error("Pick a franchise"); return; }
@@ -351,9 +353,23 @@ function SystemEntryForm({ franchiseId, priority, notes, onSubmitted, onBack }) 
                 ))}
               </tbody>
               <tfoot>
+                {savings > 0 && (
+                  <>
+                    <tr className="border-t border-border text-muted-foreground text-xs">
+                      <td colSpan={5} className="px-3 py-1.5 text-right">Subtotal before discount</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{formatINR(grossTotal)}</td>
+                      <td></td>
+                    </tr>
+                    <tr className="text-emerald-600 dark:text-emerald-400 text-xs">
+                      <td colSpan={5} className="px-3 py-1.5 text-right">You saved</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums" data-testid="sys-savings">− {formatINR(savings)}</td>
+                      <td></td>
+                    </tr>
+                  </>
+                )}
                 <tr className="bg-muted/40 border-t border-border font-medium">
                   <td colSpan={5} className="px-3 py-2 text-right">Total (after discount)</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatINR(total)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums" data-testid="sys-total">{formatINR(total)}</td>
                   <td></td>
                 </tr>
               </tfoot>

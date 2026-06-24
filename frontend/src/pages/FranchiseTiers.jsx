@@ -26,7 +26,14 @@ export default function FranchiseTiers() {
 
   const load = async () => {
     const r = await api.get("/franchise-tiers");
-    setTiers(r.data);
+    // v2.8: dedupe by name (older runs occasionally inserted twin tiers)
+    const dedup = [];
+    const seen = new Set();
+    for (const t of (r.data || [])) {
+      const key = (t.name || "").toUpperCase();
+      if (key && !seen.has(key)) { seen.add(key); dedup.push(t); }
+    }
+    setTiers(dedup);
   };
 
   useEffect(() => {

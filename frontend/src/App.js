@@ -61,6 +61,7 @@ function App() {
               <Route path="/pricing/tiers" element={<RequireAuth><FranchiseTiers /></RequireAuth>} />
               <Route path="/inventory/bulk-import" element={<RequireAuth><BulkImport /></RequireAuth>} />
               <Route path="/indents/new" element={<RequireAuth><NewOrder /></RequireAuth>} />
+              <Route path="/orders/new" element={<RequireAuth><NewOrder /></RequireAuth>} />
               <Route path="/audit-logs" element={<RequireAuth><AuditLogs /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
               <Route path="/tax-invoices" element={<RequireAuth><TaxInvoices /></RequireAuth>} />

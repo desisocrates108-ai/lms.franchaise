@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from "react";
 import { useNavigate, useParams, useSearchParams, Link } from "react-router-dom";
 import api, { BACKEND_URL, formatINR } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,7 @@ export default function TaxInvoiceDetail() {
   const isNew = !id || id === "new";
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [inv, setInv] = useState(null);
   const [org, setOrg] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -215,10 +217,10 @@ export default function TaxInvoiceDetail() {
     }
   };
 
-  const downloadPdf = async () => {
+  const downloadPdf = async (view = "customer") => {
     if (!inv?.id) { toast.error("Save the draft first"); return; }
     const token = localStorage.getItem("nexus_token");
-    const r = await fetch(`${BACKEND_URL}/api/tax-invoices/${inv.id}/pdf`, {
+    const r = await fetch(`${BACKEND_URL}/api/tax-invoices/${inv.id}/pdf?view=${view}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!r.ok) { toast.error("PDF generation failed"); return; }
@@ -226,7 +228,8 @@ export default function TaxInvoiceDetail() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `tax-invoice-${(inv.invoice_number || "draft").replace(/\//g, "-")}.pdf`;
+    const suffix = view === "internal" ? "-internal" : "";
+    a.download = `tax-invoice-${(inv.invoice_number || "draft").replace(/\//g, "-")}${suffix}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -271,9 +274,15 @@ export default function TaxInvoiceDetail() {
           )}
           {inv.id && (
             <>
-              <Button variant="outline" onClick={downloadPdf} data-testid="download-pdf-btn">
-                <FilePdf size={14} className="mr-2" /> PDF
+              <Button variant="outline" onClick={() => downloadPdf("customer")} data-testid="download-pdf-btn">
+                <FilePdf size={14} className="mr-2" /> Download PDF
               </Button>
+              {["super_admin", "hub_accountant", "warehouse_manager"].includes(user?.role) && (
+                <Button variant="outline" onClick={() => downloadPdf("internal")} data-testid="download-pdf-internal-btn"
+                        title="Includes cost / margin / discount — for internal use only">
+                  <FilePdf size={14} className="mr-2" /> Internal Copy
+                </Button>
+              )}
               <Button variant="outline" onClick={emailViaMailto} data-testid="email-btn">
                 <EnvelopeSimple size={14} className="mr-2" /> Email
               </Button>
